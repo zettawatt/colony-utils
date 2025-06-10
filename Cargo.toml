@@ -1,4 +1,3 @@
 [workspace]
 resolver = "3"
 members = ["colony-cli", "colony-daemon"]
-default-members = ["colony-cli", "colony-daemon"]

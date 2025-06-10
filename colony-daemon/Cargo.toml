@@ -8,11 +8,20 @@ homepage = "https://github.com/zettawatt/colony-utils"
 license = "GPL-3.0-only"
 
 [dependencies]
+autonomi = "0.4.6"
 axum = "0.8.4"
 clap = "4.5.39"
 colonylib = "0.2.2"
+dialoguer = "0.11.0"
+dirs = "6.0.0"
 indicatif = "0.17.11"
 jsonwebtoken = "9.3.1"
 serde = "1.0.219"
 serde_json = "1.0.140"
 tokio = "1.45.1"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.18"
+
+[profile.dev]
+opt-level = 0
+incremental = true
