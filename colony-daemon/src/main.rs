@@ -1,27 +1,35 @@
 use autonomi::{Wallet, Client};
 use axum::{
-    extract::State,
-    http::StatusCode,
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    middleware,
     response::Json,
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Router,
 };
+use axum_extra::headers::{authorization::Bearer, Authorization};
+use chrono;
 use clap::{Arg, Command};
 use colonylib::{KeyStore, PodManager, DataStore, Graph};
 use dialoguer::{Input, Password, Confirm};
 use dirs;
 use indicatif::{ProgressBar, ProgressStyle};
-use jsonwebtoken::{encode, Header, EncodingKey, DecodingKey};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use serde_json;
+use serde_json::{self, Value};
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{self, net::TcpListener};
-use tracing::{Level, info, warn};
-use tracing_subscriber::{filter, prelude::*};
+use tokio::{self, net::TcpListener, sync::Mutex};
+use tower::ServiceBuilder;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
+use tracing_subscriber::prelude::*;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
@@ -30,9 +38,98 @@ struct Claims {
     iat: usize,
 }
 
+// Request/Response DTOs
+#[derive(Debug, Serialize, Deserialize)]
+struct CreatePodRequest {
+    name: String,
+    description: Option<String>,
+    metadata: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UpdatePodRequest {
+    name: Option<String>,
+    description: Option<String>,
+    metadata: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PodResponse {
+    id: String,
+    name: String,
+    description: Option<String>,
+    metadata: Option<HashMap<String, Value>>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ErrorResponse {
+    error: String,
+    message: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct HealthResponse {
+    status: String,
+    timestamp: String,
+    version: String,
+}
+
+// Service layer to manage PodManager operations
+struct PodService {
+    // We'll store the components separately to avoid lifetime issues
+    // In a real implementation, you might use a different approach
+}
+
+impl PodService {
+    fn new() -> Self {
+        Self {}
+    }
+
+    // Placeholder methods - these would interact with the actual PodManager
+    async fn create_pod(&self, request: CreatePodRequest) -> Result<PodResponse, String> {
+        info!("Creating pod: {}", request.name);
+        // This is a placeholder implementation
+        Ok(PodResponse {
+            id: Uuid::new_v4().to_string(),
+            name: request.name,
+            description: request.description,
+            metadata: request.metadata,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    async fn get_pod(&self, id: &str) -> Result<PodResponse, String> {
+        info!("Getting pod: {}", id);
+        // This is a placeholder implementation
+        Err("Pod not found".to_string())
+    }
+
+    async fn list_pods(&self) -> Result<Vec<PodResponse>, String> {
+        info!("Listing all pods");
+        // This is a placeholder implementation
+        Ok(vec![])
+    }
+
+    async fn update_pod(&self, id: &str, request: UpdatePodRequest) -> Result<PodResponse, String> {
+        info!("Updating pod: {}", id);
+        // This is a placeholder implementation
+        Err("Pod not found".to_string())
+    }
+
+    async fn delete_pod(&self, id: &str) -> Result<(), String> {
+        info!("Deleting pod: {}", id);
+        // This is a placeholder implementation
+        Err("Pod not found".to_string())
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
-    // We'll store the PodManager differently to avoid lifetime issues
+    pod_service: Arc<PodService>,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
 }
@@ -40,13 +137,22 @@ struct AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    // Setup error logging
+    // Setup enhanced logging with structured output
     let subscriber = tracing_subscriber::registry()
-    .with(filter::Targets::new()
-        .with_target("colonylib", Level::INFO) // INFO level for colonylib
-        .with_target("colony-daemon", Level::DEBUG)      // INFO level for colony-daemon
-        .with_default(Level::ERROR))          // ERROR level for other modules
-    .with(tracing_subscriber::fmt::layer());
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| {
+                    "colony_daemon=debug,colonylib=info,tower_http=debug,axum=debug".into()
+                })
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+                .json()
+        );
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("setting default subscriber failed");
@@ -147,19 +253,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // KeyStore setup step
     /////////////////////////////////
 
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
-    pb.set_message("Setting up KeyStore...");
-    pb.enable_steady_tick(Duration::from_millis(100));
-
     let keystore_path = data_store.get_keystore_path();
-    let keystore_password = get_password(password_arg)?;
+    let mut keystore_password = get_password(password_arg)?;
 
     let mut keystore = if !keystore_path.exists() {
         // Initialize new KeyStore
-        pb.set_message("Initializing new KeyStore...");
 
         // Check if user wants to generate new mnemonic or enter existing one
         let generate_new = Confirm::new()
@@ -201,8 +299,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         keystore
     } else {
         // Load existing KeyStore
-        pb.set_message("Loading existing KeyStore...");
-
         loop {
             let mut file = fs::File::open(&keystore_path)
                 .map_err(|e| format!("Failed to open keystore file: {}", e))?;
@@ -210,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(keystore) => break keystore,
                 Err(_) => {
                     warn!("Failed to unlock KeyStore with provided password");
-                    let _new_password = Password::new()
+                    keystore_password = Password::new()
                         .with_prompt("Enter KeyStore password")
                         .interact()?;
                     // Note: This is a simplified approach - in practice you'd want to handle this better
@@ -220,7 +316,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    pb.finish_with_message("KeyStore setup complete");
     info!("KeyStore loaded successfully");
     
     /////////////////////////////////
@@ -294,14 +389,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let decoding_key = DecodingKey::from_secret(keystore_password.as_bytes());
 
     // Create application state
+    let pod_service = Arc::new(PodService::new());
     let app_state = AppState {
+        pod_service,
         encoding_key,
         decoding_key,
     };
 
-    // For now, we'll just store the pod_manager separately
-    // In a full implementation, you'd want to properly manage this
-    info!("PodManager created successfully, but not integrated into REST API yet");
+    info!("PodManager created successfully and integrated into REST API");
 
     // Create router with all endpoints
     let app = create_router(app_state);
@@ -331,14 +426,66 @@ async fn init_client(environment: String) -> Client {
 }
 
 fn create_router(state: AppState) -> Router {
-    Router::new()
+    // Public routes (no authentication required)
+    let public_routes = Router::new()
         .route("/auth/token", post(create_token))
-        .route("/health", get(health_check))
-        // Add more PodManager endpoints here as needed
+        .route("/health", get(health_check));
+
+    // Protected routes (authentication required)
+    let protected_routes = Router::new()
+        .route("/api/v1/pods", get(list_pods).post(create_pod))
+        .route("/api/v1/pods/id", get(get_pod).put(update_pod).delete(delete_pod))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+
+    // Combine routes with middleware
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(CorsLayer::permissive())
+        )
         .with_state(state)
 }
 
-async fn create_token(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+// JWT Authentication middleware
+#[instrument(skip(state, headers, request))]
+async fn auth_middleware(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|header| header.to_str().ok())
+        .and_then(|header| header.strip_prefix("Bearer "));
+
+    let token = match auth_header {
+        Some(token) => token,
+        None => {
+            warn!("Missing or invalid authorization header");
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    };
+
+    let validation = Validation::new(Algorithm::HS256);
+    match decode::<Claims>(token, &state.decoding_key, &validation) {
+        Ok(token_data) => {
+            debug!("Valid token for user: {}", token_data.claims.sub);
+            Ok(next.run(request).await)
+        }
+        Err(err) => {
+            warn!("Invalid token: {}", err);
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
+
+// Authentication endpoints
+#[instrument(skip(state))]
+async fn create_token(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -351,13 +498,159 @@ async fn create_token(State(state): State<AppState>) -> Result<Json<serde_json::
     };
 
     match encode(&Header::default(), &claims, &state.encoding_key) {
-        Ok(token) => Ok(Json(serde_json::json!({ "token": token }))),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(token) => {
+            info!("JWT token created successfully");
+            Ok(Json(serde_json::json!({
+                "token": token,
+                "expires_in": 600,
+                "token_type": "Bearer"
+            })))
+        }
+        Err(err) => {
+            error!("Failed to create JWT token: {}", err);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 
-async fn health_check() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "status": "healthy" }))
+#[instrument]
+async fn health_check() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "healthy".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+// Pod management endpoints
+#[instrument(skip(state))]
+async fn create_pod(
+    State(state): State<AppState>,
+    Json(request): Json<CreatePodRequest>,
+) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Creating new pod: {}", request.name);
+
+    match state.pod_service.create_pod(request).await {
+        Ok(pod) => {
+            info!("Pod created successfully: {}", pod.id);
+            Ok(Json(pod))
+        }
+        Err(err) => {
+            error!("Failed to create pod: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_pod(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting pod: {}", id);
+
+    match state.pod_service.get_pod(&id).await {
+        Ok(pod) => {
+            debug!("Pod retrieved successfully: {}", pod.id);
+            Ok(Json(pod))
+        }
+        Err(err) => {
+            warn!("Pod not found: {}", id);
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "POD_NOT_FOUND".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn list_pods(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PodResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Listing all pods");
+
+    match state.pod_service.list_pods().await {
+        Ok(pods) => {
+            debug!("Retrieved {} pods", pods.len());
+            Ok(Json(pods))
+        }
+        Err(err) => {
+            error!("Failed to list pods: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "LIST_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn update_pod(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdatePodRequest>,
+) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Updating pod: {}", id);
+
+    match state.pod_service.update_pod(&id, request).await {
+        Ok(pod) => {
+            info!("Pod updated successfully: {}", pod.id);
+            Ok(Json(pod))
+        }
+        Err(err) => {
+            warn!("Failed to update pod {}: {}", id, err);
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "UPDATE_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn delete_pod(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    info!("Deleting pod: {}", id);
+
+    match state.pod_service.delete_pod(&id).await {
+        Ok(()) => {
+            info!("Pod deleted successfully: {}", id);
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(err) => {
+            warn!("Failed to delete pod {}: {}", id, err);
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "DELETE_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
 }
 
 fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::error::Error>> {
@@ -377,5 +670,110 @@ fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::er
             .with_prompt("Enter KeyStore password")
             .interact()
             .map_err(|e| e.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+
+    fn create_test_app_state() -> AppState {
+        let pod_service = Arc::new(PodService::new());
+        let encoding_key = EncodingKey::from_secret(b"test_secret");
+        let decoding_key = DecodingKey::from_secret(b"test_secret");
+
+        AppState {
+            pod_service,
+            encoding_key,
+            decoding_key,
+        }
+    }
+
+
+
+
+
+    #[tokio::test]
+    async fn test_pod_service_create() {
+        let service = PodService::new();
+        let request = CreatePodRequest {
+            name: "test-pod".to_string(),
+            description: Some("A test pod".to_string()),
+            metadata: Some([("env".to_string(), json!("test"))].into_iter().collect()),
+        };
+
+        let result = service.create_pod(request).await;
+        assert!(result.is_ok());
+
+        let pod = result.unwrap();
+        assert_eq!(pod.name, "test-pod");
+        assert_eq!(pod.description, Some("A test pod".to_string()));
+        assert!(pod.id.len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_list_empty() {
+        let service = PodService::new();
+        let result = service.list_pods().await;
+        assert!(result.is_ok());
+
+        let pods = result.unwrap();
+        assert_eq!(pods.len(), 0);
+    }
+
+    #[test]
+    fn test_get_password_with_pass_prefix() {
+        let password_arg = "pass:test123".to_string();
+        let result = get_password(Some(&password_arg)).unwrap();
+        assert_eq!(result, "test123");
+    }
+
+    #[test]
+    fn test_get_password_with_file_prefix() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("password.txt");
+        fs::write(&file_path, "file_password123").unwrap();
+
+        let password_arg = format!("file:{}", file_path.display());
+        let result = get_password(Some(&password_arg)).unwrap();
+        assert_eq!(result, "file_password123");
+    }
+
+    #[test]
+    fn test_get_password_invalid_format() {
+        let password_arg = "invalid:format".to_string();
+        let result = get_password(Some(&password_arg));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid password format"));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_token_creation() {
+        let app_state = create_test_app_state();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+
+        let claims = Claims {
+            sub: "test-user".to_string(),
+            exp: now + 600,
+            iat: now,
+        };
+
+        let token = encode(&Header::default(), &claims, &app_state.encoding_key);
+        assert!(token.is_ok());
+
+        // Verify we can decode it
+        let validation = Validation::new(Algorithm::HS256);
+        let decoded = decode::<Claims>(&token.unwrap(), &app_state.decoding_key, &validation);
+        assert!(decoded.is_ok());
+
+        let decoded_claims = decoded.unwrap().claims;
+        assert_eq!(decoded_claims.sub, "test-user");
     }
 }

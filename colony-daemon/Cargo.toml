@@ -10,6 +10,8 @@ license = "GPL-3.0-only"
 [dependencies]
 autonomi = "0.4.6"
 axum = "0.8.4"
+axum-extra = { version = "0.9.4", features = ["typed-header"] }
+chrono = { version = "0.4.38", features = ["serde"] }
 clap = "4.5.39"
 colonylib = "0.2.2"
 dialoguer = "0.11.0"
@@ -18,9 +20,18 @@ indicatif = "0.17.11"
 jsonwebtoken = "9.3.1"
 serde = "1.0.219"
 serde_json = "1.0.140"
-tokio = "1.45.1"
+tokio = { version = "1.45.1", features = ["full"] }
+tower = "0.5.1"
+tower-http = { version = "0.6.2", features = ["trace", "cors"] }
 tracing = "0.1.41"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+hyper = { version = "1.6.0", features = ["full"] }
+tempfile = "3.14.0"
+tokio-test = "0.4.4"
+tower = { version = "0.5.1", features = ["util"] }
 
 [profile.dev]
 opt-level = 0
