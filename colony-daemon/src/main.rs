@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
     response::Json,
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Router,
 };
 
@@ -28,7 +28,7 @@ use tokio::{self, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, instrument, warn};
-use uuid::Uuid;
+
 use tracing_subscriber::prelude::*;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -129,13 +129,29 @@ struct HealthResponse {
 
 // Service layer to manage PodManager operations
 struct PodService {
-    // We'll store the components separately to avoid lifetime issues
-    // In a real implementation, you might use a different approach
+    // Store components using Mutex<Option<T>> pattern to enable 'take and restore'
+    client: std::sync::Mutex<Option<Client>>,
+    wallet: std::sync::Mutex<Option<Wallet>>,
+    data_store: std::sync::Mutex<Option<DataStore>>,
+    keystore: std::sync::Mutex<Option<KeyStore>>,
+    graph: std::sync::Mutex<Option<Graph>>,
 }
 
 impl PodService {
-    fn new() -> Self {
-        Self {}
+    fn new(
+        client: Client,
+        wallet: Wallet,
+        data_store: DataStore,
+        keystore: KeyStore,
+        graph: Graph,
+    ) -> Self {
+        Self {
+            client: std::sync::Mutex::new(Some(client)),
+            wallet: std::sync::Mutex::new(Some(wallet)),
+            data_store: std::sync::Mutex::new(Some(data_store)),
+            keystore: std::sync::Mutex::new(Some(keystore)),
+            graph: std::sync::Mutex::new(Some(graph)),
+        }
     }
 
     // PodManager method mappings - these would interact with the actual PodManager
@@ -161,9 +177,54 @@ impl PodService {
     // Maps to PodManager::add_pod()
     async fn add_pod(&self, request: CreatePodRequest) -> Result<PodResponse, String> {
         info!("Adding pod: {}", request.name);
-        // This is a placeholder implementation
+
+        // Extract all data we need and drop all locks before any await
+        let (client, wallet, mut data_store, mut keystore, mut graph) = {
+            let client = self.client.lock().unwrap()
+                .take()
+                .ok_or("Client not initialized")?;
+            let wallet = self.wallet.lock().unwrap()
+                .take()
+                .ok_or("Wallet not initialized")?;
+            let data_store = self.data_store.lock().unwrap()
+                .take()
+                .ok_or("DataStore not initialized")?;
+            let keystore = self.keystore.lock().unwrap()
+                .take()
+                .ok_or("KeyStore not initialized")?;
+            let graph = self.graph.lock().unwrap()
+                .take()
+                .ok_or("Graph not initialized")?;
+            (client, wallet, data_store, keystore, graph)
+        };
+        // All MutexGuards are dropped here
+
+        // Now we can safely use async operations
+        let mut podman = PodManager::new(
+            client.clone(),
+            &wallet,
+            &mut data_store,
+            &mut keystore,
+            &mut graph
+        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+
+        // Use the PodManager
+        let (pod_address, _pod_data) = podman.add_pod(&request.name).await
+            .map_err(|e| format!("Failed to add pod: {}", e))?;
+
+        // Put the components back
+        {
+            *self.client.lock().unwrap() = Some(client);
+            *self.wallet.lock().unwrap() = Some(wallet);
+            *self.data_store.lock().unwrap() = Some(data_store);
+            *self.keystore.lock().unwrap() = Some(keystore);
+            *self.graph.lock().unwrap() = Some(graph);
+        }
+
+        info!("Added pod {} with address {}", &request.name, &pod_address);
+
         Ok(PodResponse {
-            id: Uuid::new_v4().to_string(),
+            id: pod_address,
             name: request.name,
             description: request.description,
             metadata: request.metadata,
@@ -466,7 +527,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pb.set_message("Setting up PodManager...");
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    let _pod_manager = PodManager::new(client, &wallet, &mut data_store, &mut keystore, &mut graph).await
+    // Test PodManager creation to ensure components are compatible
+    let _pod_manager = PodManager::new(client.clone(), &wallet, &mut data_store, &mut keystore, &mut graph).await
         .map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
     pb.finish_with_message("PodManager setup complete");
@@ -487,8 +549,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let encoding_key = EncodingKey::from_secret(keystore_password.as_bytes());
     let decoding_key = DecodingKey::from_secret(keystore_password.as_bytes());
 
-    // Create application state
-    let pod_service = Arc::new(PodService::new());
+    // Create application state with components
+    let pod_service = Arc::new(PodService::new(client, wallet, data_store, keystore, graph));
     let app_state = AppState {
         pod_service,
         encoding_key,
@@ -922,9 +984,35 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
 
+    // Helper function to create mock components for testing
+    async fn create_mock_components() -> (Client, Wallet, DataStore, KeyStore, Graph) {
+        // For testing, we'll create minimal mock components
+        // Note: These tests will be limited since we can't easily mock the real components
+        // In a real scenario, you'd want to use dependency injection or mock traits
 
-    fn create_test_app_state() -> AppState {
-        let pod_service = Arc::new(PodService::new());
+        // Create a data store using the default create method
+        let data_store = DataStore::create().unwrap();
+
+        // Create a test keystore with a known mnemonic
+        let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let mut keystore = KeyStore::from_mnemonic(test_mnemonic).unwrap();
+        keystore.set_wallet_key("0x1234567890123456789012345678901234567890123456789012345678901234".to_string()).unwrap();
+
+        // Create a test graph
+        let graph_path = data_store.get_graph_path();
+        let graph = Graph::open(&graph_path).unwrap();
+
+        // Create test client and wallet
+        let client = Client::init_local().await.unwrap();
+        let wallet_key = keystore.get_wallet_key();
+        let wallet = Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key).unwrap();
+
+        (client, wallet, data_store, keystore, graph)
+    }
+
+    async fn create_test_app_state() -> AppState {
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let pod_service = Arc::new(PodService::new(client, wallet, data_store, keystore, graph));
         let encoding_key = EncodingKey::from_secret(b"test_secret");
         let decoding_key = DecodingKey::from_secret(b"test_secret");
 
@@ -941,7 +1029,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_add_pod() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = CreatePodRequest {
             name: "test-pod".to_string(),
             description: Some("A test pod".to_string()),
@@ -959,7 +1048,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_refresh_ref() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let result = service.refresh_ref().await;
         assert!(result.is_ok());
 
@@ -969,7 +1059,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_refresh_cache() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let result = service.refresh_cache().await;
         assert!(result.is_ok());
 
@@ -980,7 +1071,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_upload_all() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let result = service.upload_all().await;
         assert!(result.is_ok());
 
@@ -991,7 +1083,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_get_subject_data() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let result = service.get_subject_data("test-id").await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Subject data not found");
@@ -999,7 +1092,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_put_subject_data() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = SubjectDataRequest {
             data: json!({"key": "value"}),
             metadata: None,
@@ -1014,7 +1108,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_add_pod_ref() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = PodRefRequest {
             pod_ref: "test-ref".to_string(),
             metadata: None,
@@ -1026,14 +1121,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_pod_service_remove_pod_ref() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let result = service.remove_pod_ref("test-id", "test-ref").await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_pod_service_search() {
-        let service = PodService::new();
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = SearchRequest {
             query: "test query".to_string(),
             filters: None,
@@ -1077,7 +1174,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_token_creation() {
-        let app_state = create_test_app_state();
+        let app_state = create_test_app_state().await;
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
