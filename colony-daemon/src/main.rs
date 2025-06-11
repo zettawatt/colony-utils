@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use axum_extra::headers::{authorization::Bearer, Authorization};
+
 use chrono;
 use clap::{Arg, Command};
 use colonylib::{KeyStore, PodManager, DataStore, Graph};
@@ -24,7 +24,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{self, net::TcpListener, sync::Mutex};
+use tokio::{self, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, instrument, warn};
@@ -64,6 +64,56 @@ struct PodResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct PodRefRequest {
+    pod_ref: String,
+    metadata: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SubjectDataRequest {
+    data: Value,
+    metadata: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchRequest {
+    query: String,
+    filters: Option<HashMap<String, Value>>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchResponse {
+    results: Vec<SearchResult>,
+    total_count: usize,
+    query: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SearchResult {
+    id: String,
+    title: String,
+    description: Option<String>,
+    score: f64,
+    metadata: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CacheResponse {
+    status: String,
+    message: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UploadResponse {
+    uploaded_count: usize,
+    failed_count: usize,
+    message: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ErrorResponse {
     error: String,
     message: String,
@@ -88,9 +138,29 @@ impl PodService {
         Self {}
     }
 
-    // Placeholder methods - these would interact with the actual PodManager
-    async fn create_pod(&self, request: CreatePodRequest) -> Result<PodResponse, String> {
-        info!("Creating pod: {}", request.name);
+    // PodManager method mappings - these would interact with the actual PodManager
+
+    // Maps to PodManager::refresh_cache()
+    async fn refresh_cache(&self) -> Result<CacheResponse, String> {
+        info!("Refreshing cache");
+        // This is a placeholder implementation
+        Ok(CacheResponse {
+            status: "success".to_string(),
+            message: "Cache refreshed successfully".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    // Maps to PodManager::refresh_ref() - refreshes pod references
+    async fn refresh_ref(&self) -> Result<Vec<PodResponse>, String> {
+        info!("Refreshing pod references");
+        // This is a placeholder implementation
+        Ok(vec![])
+    }
+
+    // Maps to PodManager::add_pod()
+    async fn add_pod(&self, request: CreatePodRequest) -> Result<PodResponse, String> {
+        info!("Adding pod: {}", request.name);
         // This is a placeholder implementation
         Ok(PodResponse {
             id: Uuid::new_v4().to_string(),
@@ -102,29 +172,58 @@ impl PodService {
         })
     }
 
-    async fn get_pod(&self, id: &str) -> Result<PodResponse, String> {
-        info!("Getting pod: {}", id);
+    // Maps to PodManager::upload_all()
+    async fn upload_all(&self) -> Result<UploadResponse, String> {
+        info!("Uploading all pods");
         // This is a placeholder implementation
-        Err("Pod not found".to_string())
+        Ok(UploadResponse {
+            uploaded_count: 0,
+            failed_count: 0,
+            message: "No pods to upload".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
     }
 
-    async fn list_pods(&self) -> Result<Vec<PodResponse>, String> {
-        info!("Listing all pods");
+    // Maps to PodManager::get_subject_data()
+    async fn get_subject_data(&self, id: &str) -> Result<Value, String> {
+        info!("Getting subject data for: {}", id);
         // This is a placeholder implementation
-        Ok(vec![])
+        Err("Subject data not found".to_string())
     }
 
-    async fn update_pod(&self, id: &str, request: UpdatePodRequest) -> Result<PodResponse, String> {
-        info!("Updating pod: {}", id);
+    // Maps to PodManager::put_subject_data()
+    async fn put_subject_data(&self, id: &str, request: SubjectDataRequest) -> Result<Value, String> {
+        info!("Putting subject data for: {}", id);
         // This is a placeholder implementation
-        Err("Pod not found".to_string())
+        Ok(request.data)
     }
 
-    async fn delete_pod(&self, id: &str) -> Result<(), String> {
-        info!("Deleting pod: {}", id);
+    // Maps to PodManager::add_pod_ref()
+    async fn add_pod_ref(&self, id: &str, request: PodRefRequest) -> Result<(), String> {
+        info!("Adding pod reference for {}: {}", id, request.pod_ref);
         // This is a placeholder implementation
-        Err("Pod not found".to_string())
+        Ok(())
     }
+
+    // Maps to PodManager::remove_pod_ref()
+    async fn remove_pod_ref(&self, id: &str, pod_ref: &str) -> Result<(), String> {
+        info!("Removing pod reference for {}: {}", id, pod_ref);
+        // This is a placeholder implementation
+        Ok(())
+    }
+
+    // Maps to PodManager::search()
+    async fn search(&self, request: SearchRequest) -> Result<SearchResponse, String> {
+        info!("Searching for: {}", request.query);
+        // This is a placeholder implementation
+        Ok(SearchResponse {
+            results: vec![],
+            total_count: 0,
+            query: request.query,
+        })
+    }
+
+
 }
 
 #[derive(Clone)]
@@ -436,8 +535,8 @@ fn create_router(state: AppState) -> Router {
         .route("/api/v1/cache", post(refresh_cache))
         .route("/api/v1/pods", get(refresh_ref).post(add_pod))
         .route("/api/v1/pods/upload_all", put(upload_all))
-        .route("/api/v1/pods/id", get(get_subject_data).put(put_subject_data))
-        .route("/api/v1/pods/id/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
+        .route("/api/v1/pods/{id}", get(get_subject_data).put(put_subject_data))
+        .route("/api/v1/pods/{id}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
         .route("/api/v1/search", get(search))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
@@ -526,25 +625,72 @@ async fn health_check() -> Json<HealthResponse> {
     })
 }
 
-// Pod management endpoints
+// PodManager REST endpoint handlers
+
+#[instrument(skip(state))]
+async fn refresh_cache(State(state): State<AppState>) -> Result<Json<CacheResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Refreshing cache");
+
+    match state.pod_service.refresh_cache().await {
+        Ok(response) => {
+            info!("Cache refreshed successfully");
+            Ok(Json(response))
+        }
+        Err(err) => {
+            error!("Failed to refresh cache: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "CACHE_REFRESH_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn refresh_ref(State(state): State<AppState>) -> Result<Json<Vec<PodResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Refreshing pod references");
+
+    match state.pod_service.refresh_ref().await {
+        Ok(pods) => {
+            debug!("Retrieved {} pod references", pods.len());
+            Ok(Json(pods))
+        }
+        Err(err) => {
+            error!("Failed to refresh pod references: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "REFRESH_REF_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
 #[instrument(skip(state))]
 async fn add_pod(
     State(state): State<AppState>,
     Json(request): Json<CreatePodRequest>,
 ) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Creating new pod: {}", request.name);
+    info!("Adding new pod: {}", request.name);
 
-    match state.pod_service.create_pod(request).await {
+    match state.pod_service.add_pod(request).await {
         Ok(pod) => {
-            info!("Pod created successfully: {}", pod.id);
+            info!("Pod added successfully: {}", pod.id);
             Ok(Json(pod))
         }
         Err(err) => {
-            error!("Failed to create pod: {}", err);
+            error!("Failed to add pod: {}", err);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: "CREATION_FAILED".to_string(),
+                    error: "ADD_POD_FAILED".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
@@ -554,48 +700,20 @@ async fn add_pod(
 }
 
 #[instrument(skip(state))]
-async fn get_pod(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Getting pod: {}", id);
+async fn upload_all(State(state): State<AppState>) -> Result<Json<UploadResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Uploading all pods");
 
-    match state.pod_service.get_pod(&id).await {
-        Ok(pod) => {
-            debug!("Pod retrieved successfully: {}", pod.id);
-            Ok(Json(pod))
+    match state.pod_service.upload_all().await {
+        Ok(response) => {
+            info!("Upload completed: {} uploaded, {} failed", response.uploaded_count, response.failed_count);
+            Ok(Json(response))
         }
         Err(err) => {
-            warn!("Pod not found: {}", id);
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: "POD_NOT_FOUND".to_string(),
-                    message: err,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ))
-        }
-    }
-}
-
-#[instrument(skip(state))]
-async fn list_pods(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<PodResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Listing all pods");
-
-    match state.pod_service.list_pods().await {
-        Ok(pods) => {
-            debug!("Retrieved {} pods", pods.len());
-            Ok(Json(pods))
-        }
-        Err(err) => {
-            error!("Failed to list pods: {}", err);
+            error!("Failed to upload all pods: {}", err);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: "LIST_FAILED".to_string(),
+                    error: "UPLOAD_ALL_FAILED".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
@@ -605,24 +723,23 @@ async fn list_pods(
 }
 
 #[instrument(skip(state))]
-async fn update_pod(
+async fn get_subject_data(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<UpdatePodRequest>,
-) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Updating pod: {}", id);
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting subject data for: {}", id);
 
-    match state.pod_service.update_pod(&id, request).await {
-        Ok(pod) => {
-            info!("Pod updated successfully: {}", pod.id);
-            Ok(Json(pod))
+    match state.pod_service.get_subject_data(&id).await {
+        Ok(data) => {
+            debug!("Subject data retrieved successfully for: {}", id);
+            Ok(Json(data))
         }
         Err(err) => {
-            warn!("Failed to update pod {}: {}", id, err);
+            warn!("Subject data not found for: {}", id);
             Err((
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
-                    error: "UPDATE_FAILED".to_string(),
+                    error: "SUBJECT_DATA_NOT_FOUND".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
@@ -632,23 +749,93 @@ async fn update_pod(
 }
 
 #[instrument(skip(state))]
-async fn delete_pod(
+async fn put_subject_data(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Json(request): Json<SubjectDataRequest>,
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Putting subject data for: {}", id);
+
+    match state.pod_service.put_subject_data(&id, request).await {
+        Ok(data) => {
+            info!("Subject data updated successfully for: {}", id);
+            Ok(Json(data))
+        }
+        Err(err) => {
+            error!("Failed to update subject data for {}: {}", id, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "PUT_SUBJECT_DATA_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn add_pod_ref(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<PodRefRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    info!("Deleting pod: {}", id);
+    info!("Adding pod reference for {}: {}", id, request.pod_ref);
 
-    match state.pod_service.delete_pod(&id).await {
+    match state.pod_service.add_pod_ref(&id, request).await {
         Ok(()) => {
-            info!("Pod deleted successfully: {}", id);
+            info!("Pod reference added successfully for: {}", id);
+            Ok(StatusCode::CREATED)
+        }
+        Err(err) => {
+            error!("Failed to add pod reference for {}: {}", id, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "ADD_POD_REF_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn remove_pod_ref(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let pod_ref = match params.get("pod_ref") {
+        Some(pod_ref) => pod_ref,
+        None => {
+            warn!("Missing pod_ref parameter for remove_pod_ref");
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "MISSING_PARAMETER".to_string(),
+                    message: "pod_ref parameter is required".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ));
+        }
+    };
+
+    info!("Removing pod reference for {}: {}", id, pod_ref);
+
+    match state.pod_service.remove_pod_ref(&id, pod_ref).await {
+        Ok(()) => {
+            info!("Pod reference removed successfully for: {}", id);
             Ok(StatusCode::NO_CONTENT)
         }
         Err(err) => {
-            warn!("Failed to delete pod {}: {}", id, err);
+            error!("Failed to remove pod reference for {}: {}", id, err);
             Err((
-                StatusCode::NOT_FOUND,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: "DELETE_FAILED".to_string(),
+                    error: "REMOVE_POD_REF_FAILED".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
@@ -656,6 +843,58 @@ async fn delete_pod(
         }
     }
 }
+
+#[instrument(skip(state))]
+async fn search(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let query = match params.get("q") {
+        Some(query) => query.clone(),
+        None => {
+            warn!("Missing query parameter for search");
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "MISSING_PARAMETER".to_string(),
+                    message: "q parameter is required".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ));
+        }
+    };
+
+    let limit = params.get("limit")
+        .and_then(|l| l.parse::<usize>().ok());
+
+    let search_request = SearchRequest {
+        query: query.clone(),
+        filters: None,
+        limit,
+    };
+
+    info!("Searching for: {}", query);
+
+    match state.pod_service.search(search_request).await {
+        Ok(response) => {
+            debug!("Search completed: {} results for query '{}'", response.total_count, query);
+            Ok(Json(response))
+        }
+        Err(err) => {
+            error!("Search failed for query '{}': {}", query, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SEARCH_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+
 
 fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(pass_spec) = password_arg {
@@ -701,7 +940,7 @@ mod tests {
 
 
     #[tokio::test]
-    async fn test_pod_service_create() {
+    async fn test_pod_service_add_pod() {
         let service = PodService::new();
         let request = CreatePodRequest {
             name: "test-pod".to_string(),
@@ -709,7 +948,7 @@ mod tests {
             metadata: Some([("env".to_string(), json!("test"))].into_iter().collect()),
         };
 
-        let result = service.create_pod(request).await;
+        let result = service.add_pod(request).await;
         assert!(result.is_ok());
 
         let pod = result.unwrap();
@@ -719,13 +958,95 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pod_service_list_empty() {
+    async fn test_pod_service_refresh_ref() {
         let service = PodService::new();
-        let result = service.list_pods().await;
+        let result = service.refresh_ref().await;
         assert!(result.is_ok());
 
         let pods = result.unwrap();
         assert_eq!(pods.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_refresh_cache() {
+        let service = PodService::new();
+        let result = service.refresh_cache().await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap();
+        assert_eq!(response.status, "success");
+        assert!(response.message.contains("Cache refreshed"));
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_upload_all() {
+        let service = PodService::new();
+        let result = service.upload_all().await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap();
+        assert_eq!(response.uploaded_count, 0);
+        assert_eq!(response.failed_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_get_subject_data() {
+        let service = PodService::new();
+        let result = service.get_subject_data("test-id").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Subject data not found");
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_put_subject_data() {
+        let service = PodService::new();
+        let request = SubjectDataRequest {
+            data: json!({"key": "value"}),
+            metadata: None,
+        };
+
+        let result = service.put_subject_data("test-id", request).await;
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert_eq!(data, json!({"key": "value"}));
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_add_pod_ref() {
+        let service = PodService::new();
+        let request = PodRefRequest {
+            pod_ref: "test-ref".to_string(),
+            metadata: None,
+        };
+
+        let result = service.add_pod_ref("test-id", request).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_remove_pod_ref() {
+        let service = PodService::new();
+        let result = service.remove_pod_ref("test-id", "test-ref").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_search() {
+        let service = PodService::new();
+        let request = SearchRequest {
+            query: "test query".to_string(),
+            filters: None,
+            limit: Some(10),
+        };
+
+        let result = service.search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap();
+        assert_eq!(response.query, "test query");
+        assert_eq!(response.total_count, 0);
+        assert_eq!(response.results.len(), 0);
     }
 
     #[test]
