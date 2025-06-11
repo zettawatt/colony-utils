@@ -433,8 +433,12 @@ fn create_router(state: AppState) -> Router {
 
     // Protected routes (authentication required)
     let protected_routes = Router::new()
-        .route("/api/v1/pods", get(list_pods).post(create_pod))
-        .route("/api/v1/pods/id", get(get_pod).put(update_pod).delete(delete_pod))
+        .route("/api/v1/cache", post(refresh_cache))
+        .route("/api/v1/pods", get(refresh_ref).post(add_pod))
+        .route("/api/v1/pods/upload_all", put(upload_all))
+        .route("/api/v1/pods/id", get(get_subject_data).put(put_subject_data))
+        .route("/api/v1/pods/id/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
+        .route("/api/v1/search", get(search))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Combine routes with middleware
@@ -524,7 +528,7 @@ async fn health_check() -> Json<HealthResponse> {
 
 // Pod management endpoints
 #[instrument(skip(state))]
-async fn create_pod(
+async fn add_pod(
     State(state): State<AppState>,
     Json(request): Json<CreatePodRequest>,
 ) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
