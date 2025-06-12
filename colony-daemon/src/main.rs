@@ -705,7 +705,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
-                    "colony_daemon=debug,colonylib=info,tower_http=debug,axum=debug".into()
+                    "colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug".into()
                 })
         )
         .with(
@@ -714,7 +714,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_thread_ids(true)
                 .with_file(true)
                 .with_line_number(true)
-                .json()
+                //.json()
         );
 
     tracing::subscriber::set_global_default(subscriber)
