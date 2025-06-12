@@ -24,10 +24,11 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{self, net::TcpListener};
+use tokio::{self, net::TcpListener, sync::Mutex as TokioMutex};
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{debug, error, info, instrument, warn};
+use uuid::Uuid;
 
 use tracing_subscriber::prelude::*;
 
@@ -130,6 +131,140 @@ struct HealthResponse {
     status: String,
     timestamp: String,
     version: String,
+}
+
+// Job management structures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum JobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum JobType {
+    RefreshCache,
+    UploadAll,
+    RefreshRef,
+    Search,
+    GetSubjectData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Job {
+    id: String,
+    job_type: JobType,
+    status: JobStatus,
+    progress: Option<f32>, // 0.0 to 1.0
+    message: Option<String>,
+    result: Option<Value>,
+    error: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JobResponse {
+    job_id: String,
+    status: JobStatus,
+    message: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JobStatusResponse {
+    job: Job,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JobResultResponse {
+    job_id: String,
+    status: JobStatus,
+    result: Option<Value>,
+    error: Option<String>,
+}
+
+// Job Manager for tracking async operations
+#[derive(Debug)]
+struct JobManager {
+    jobs: TokioMutex<HashMap<String, Job>>,
+    active_operation: TokioMutex<Option<String>>, // Only one operation can run at a time
+}
+
+impl JobManager {
+    fn new() -> Self {
+        Self {
+            jobs: TokioMutex::new(HashMap::new()),
+            active_operation: TokioMutex::new(None),
+        }
+    }
+
+    async fn create_job(&self, job_type: JobType) -> Result<String, String> {
+        let mut active = self.active_operation.lock().await;
+        if active.is_some() {
+            return Err("Another operation is already running".to_string());
+        }
+
+        let job_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let job = Job {
+            id: job_id.clone(),
+            job_type,
+            status: JobStatus::Pending,
+            progress: Some(0.0),
+            message: Some("Job created".to_string()),
+            result: None,
+            error: None,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        let mut jobs = self.jobs.lock().await;
+        jobs.insert(job_id.clone(), job);
+        *active = Some(job_id.clone());
+
+        Ok(job_id)
+    }
+
+    async fn update_job_status(&self, job_id: &str, status: JobStatus, message: Option<String>, progress: Option<f32>) {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(job) = jobs.get_mut(job_id) {
+            job.status = status;
+            job.updated_at = chrono::Utc::now().to_rfc3339();
+            if let Some(msg) = message {
+                job.message = Some(msg);
+            }
+            if let Some(prog) = progress {
+                job.progress = Some(prog);
+            }
+        }
+    }
+
+    async fn complete_job(&self, job_id: &str, result: Option<Value>, error: Option<String>) {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(job) = jobs.get_mut(job_id) {
+            job.status = if error.is_some() { JobStatus::Failed } else { JobStatus::Completed };
+            job.result = result;
+            job.error = error;
+            job.progress = Some(1.0);
+            job.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+
+        // Clear active operation
+        let mut active = self.active_operation.lock().await;
+        if active.as_ref().map(|s| s.as_str()) == Some(job_id) {
+            *active = None;
+        }
+    }
+
+    async fn get_job(&self, job_id: &str) -> Option<Job> {
+        let jobs = self.jobs.lock().await;
+        jobs.get(job_id).cloned()
+    }
 }
 
 // Service layer to manage PodManager operations
@@ -693,6 +828,7 @@ impl PodService {
 #[derive(Clone)]
 struct AppState {
     pod_service: Arc<PodService>,
+    job_manager: Arc<JobManager>,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
 }
@@ -954,8 +1090,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create application state with components
     let pod_service = Arc::new(PodService::new(client, wallet, data_store, keystore, graph));
+    let job_manager = Arc::new(JobManager::new());
     let app_state = AppState {
         pod_service,
+        job_manager,
         encoding_key,
         decoding_key,
     };
@@ -997,13 +1135,23 @@ fn create_router(state: AppState) -> Router {
 
     // Protected routes (authentication required)
     let protected_routes = Router::new()
+        // Legacy synchronous endpoints (kept for backward compatibility)
         .route("/api/v1/cache", put(upload_all).post(refresh_cache))
         .route("/api/v1/cache/{depth}", post(refresh_ref))
+        .route("/api/v1/search", get(search))
+        .route("/api/v1/search/subject/{subject}", get(get_subject_data))
+        // New asynchronous job-based endpoints
+        .route("/api/v1/jobs/cache/refresh", post(start_refresh_cache_job))
+        .route("/api/v1/jobs/cache/upload", post(start_upload_all_job))
+        .route("/api/v1/jobs/cache/refresh/{depth}", post(start_refresh_ref_job))
+        .route("/api/v1/jobs/search", post(start_search_job))
+        .route("/api/v1/jobs/search/subject/{subject}", post(start_get_subject_data_job))
+        .route("/api/v1/jobs/{job_id}", get(get_job_status))
+        .route("/api/v1/jobs/{job_id}/result", get(get_job_result))
+        // Other endpoints
         .route("/api/v1/pods", post(add_pod))
         .route("/api/v1/pods/{pod}/{subject}", put(put_subject_data))
         .route("/api/v1/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
-        .route("/api/v1/search", get(search))
-        .route("/api/v1/search/subject/{subject}", get(get_subject_data))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Combine routes with middleware
@@ -1386,6 +1534,341 @@ fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::er
     }
 }
 
+// Job management endpoint handlers
+
+#[instrument(skip(state))]
+async fn start_refresh_cache_job(
+    State(state): State<AppState>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting refresh cache job");
+
+    match state.job_manager.create_job(JobType::RefreshCache).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some("Starting cache refresh".to_string()), Some(0.1)).await;
+
+                match state_clone.pod_service.refresh_cache().await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                    }
+                    Err(err) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: "Cache refresh job started".to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create refresh cache job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn start_upload_all_job(
+    State(state): State<AppState>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting upload all job");
+
+    match state.job_manager.create_job(JobType::UploadAll).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some("Starting upload all".to_string()), Some(0.1)).await;
+
+                match state_clone.pod_service.upload_all().await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                    }
+                    Err(err) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: "Upload all job started".to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create upload all job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn start_refresh_ref_job(
+    State(state): State<AppState>,
+    Path(depth): Path<u64>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting refresh ref job with depth: {}", depth);
+
+    match state.job_manager.create_job(JobType::RefreshRef).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Starting refresh ref with depth {}", depth)), Some(0.1)).await;
+
+                match state_clone.pod_service.refresh_ref(depth).await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                    }
+                    Err(err) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: format!("Refresh ref job started with depth {}", depth),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create refresh ref job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn start_search_job(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let query = match params.get("q") {
+        Some(query) => query.clone(),
+        None => {
+            warn!("Missing query parameter for search job");
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "MISSING_PARAMETER".to_string(),
+                    message: "q parameter is required".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ));
+        }
+    };
+
+    info!("Starting search job for: {}", query);
+
+    match state.job_manager.create_job(JobType::Search).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+            let query_clone = query.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_clone)), Some(0.1)).await;
+
+                let limit = params.get("limit").and_then(|l| l.parse::<usize>().ok());
+                let search_request = SearchRequest {
+                    query: query_clone,
+                    filters: None,
+                    limit,
+                };
+
+                match state_clone.pod_service.search(search_request).await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                    }
+                    Err(err) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: format!("Search job started for: {}", query),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create search job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn start_get_subject_data_job(
+    State(state): State<AppState>,
+    Path(subject): Path<String>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting get subject data job for: {}", subject);
+
+    match state.job_manager.create_job(JobType::GetSubjectData).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+            let subject_clone = subject.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Getting subject data for: {}", subject_clone)), Some(0.1)).await;
+
+                match state_clone.pod_service.get_subject_data(&subject_clone).await {
+                    Ok(response) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, Some(response), None).await;
+                    }
+                    Err(err) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: format!("Get subject data job started for: {}", subject),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create get subject data job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_job_status(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<JobStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting status for job: {}", job_id);
+
+    match state.job_manager.get_job(&job_id).await {
+        Some(job) => {
+            debug!("Job status retrieved for: {}", job_id);
+            Ok(Json(JobStatusResponse { job }))
+        }
+        None => {
+            warn!("Job not found: {}", job_id);
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "JOB_NOT_FOUND".to_string(),
+                    message: format!("Job with ID {} not found", job_id),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_job_result(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+) -> Result<Json<JobResultResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting result for job: {}", job_id);
+
+    match state.job_manager.get_job(&job_id).await {
+        Some(job) => {
+            match job.status {
+                JobStatus::Completed | JobStatus::Failed => {
+                    debug!("Job result retrieved for: {}", job_id);
+                    Ok(Json(JobResultResponse {
+                        job_id: job.id,
+                        status: job.status,
+                        result: job.result,
+                        error: job.error,
+                    }))
+                }
+                _ => {
+                    warn!("Job not yet completed: {}", job_id);
+                    Err((
+                        StatusCode::ACCEPTED,
+                        Json(ErrorResponse {
+                            error: "JOB_NOT_COMPLETED".to_string(),
+                            message: format!("Job {} is not yet completed", job_id),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        }),
+                    ))
+                }
+            }
+        }
+        None => {
+            warn!("Job not found: {}", job_id);
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "JOB_NOT_FOUND".to_string(),
+                    message: format!("Job with ID {} not found", job_id),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1426,6 +1909,7 @@ mod tests {
 
         AppState {
             pod_service,
+            job_manager: Arc::new(JobManager::new()),
             encoding_key,
             decoding_key,
         }
@@ -1496,6 +1980,59 @@ mod tests {
         let result = service.get_subject_data("test-id").await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Subject data not found");
+    }
+
+    #[tokio::test]
+    async fn test_job_manager() {
+        let job_manager = JobManager::new();
+
+        // Test creating a job
+        let job_id = job_manager.create_job(JobType::RefreshCache).await.unwrap();
+        assert!(!job_id.is_empty());
+
+        // Test getting the job
+        let job = job_manager.get_job(&job_id).await.unwrap();
+        assert_eq!(job.id, job_id);
+        assert!(matches!(job.status, JobStatus::Pending));
+        assert!(matches!(job.job_type, JobType::RefreshCache));
+
+        // Test updating job status
+        job_manager.update_job_status(&job_id, JobStatus::Running, Some("Running".to_string()), Some(0.5)).await;
+        let job = job_manager.get_job(&job_id).await.unwrap();
+        assert!(matches!(job.status, JobStatus::Running));
+        assert_eq!(job.progress, Some(0.5));
+
+        // Test completing job
+        let result = serde_json::json!({"test": "result"});
+        job_manager.complete_job(&job_id, Some(result.clone()), None).await;
+        let job = job_manager.get_job(&job_id).await.unwrap();
+        assert!(matches!(job.status, JobStatus::Completed));
+        assert_eq!(job.result, Some(result));
+        assert_eq!(job.progress, Some(1.0));
+
+        // Test that we can create another job now
+        let job_id2 = job_manager.create_job(JobType::UploadAll).await.unwrap();
+        assert_ne!(job_id, job_id2);
+    }
+
+    #[tokio::test]
+    async fn test_job_manager_mutual_exclusion() {
+        let job_manager = JobManager::new();
+
+        // Create first job
+        let job_id1 = job_manager.create_job(JobType::RefreshCache).await.unwrap();
+
+        // Try to create second job - should fail
+        let result = job_manager.create_job(JobType::UploadAll).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Another operation is already running"));
+
+        // Complete first job
+        job_manager.complete_job(&job_id1, None, None).await;
+
+        // Now we should be able to create another job
+        let job_id2 = job_manager.create_job(JobType::UploadAll).await.unwrap();
+        assert!(!job_id2.is_empty());
     }
 
     #[tokio::test]
