@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
-
+use bip39::Mnemonic;
 use chrono;
 use clap::{Arg, Command};
 use colonylib::{KeyStore, PodManager, DataStore, Graph};
@@ -32,6 +32,9 @@ use uuid::Uuid;
 
 use tracing_subscriber::prelude::*;
 
+// ETH wallet for local testnet
+const LOCAL_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: String,
@@ -43,25 +46,18 @@ struct Claims {
 #[derive(Debug, Serialize, Deserialize)]
 struct CreatePodRequest {
     name: String,
-    description: Option<String>,
-    metadata: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct UpdatePodRequest {
-    name: Option<String>,
-    description: Option<String>,
-    metadata: Option<HashMap<String, Value>>,
+struct UploadPodRequest {
+    address: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PodResponse {
-    id: String,
+    address: String,
     name: String,
-    description: Option<String>,
-    metadata: Option<HashMap<String, Value>>,
-    created_at: String,
-    updated_at: String,
+    timestamp: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,34 +70,17 @@ struct RefreshResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct PodRefRequest {
     pod_ref: String,
-    metadata: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SubjectDataRequest {
     data: Value,
-    metadata: Option<HashMap<String, Value>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SearchRequest {
-    query: String,
-    filters: Option<HashMap<String, Value>>,
-    limit: Option<usize>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SearchResponse {
-    results: Vec<SearchResult>,
-    total_count: usize,
-    query: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SearchResult {
-    id: String,
+    address: String,
     title: String,
-    description: Option<String>,
     score: f64,
     metadata: Option<HashMap<String, Value>>,
 }
@@ -109,6 +88,13 @@ struct SearchResult {
 #[derive(Debug, Serialize, Deserialize)]
 struct CacheResponse {
     status: String,
+    message: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UploadPodResponse {
+    address: String,
     message: String,
     timestamp: String,
 }
@@ -148,6 +134,7 @@ enum JobStatus {
 enum JobType {
     RefreshCache,
     UploadAll,
+    UploadPod,
     RefreshRef,
     Search,
     GetSubjectData,
@@ -460,12 +447,65 @@ impl PodService {
         info!("Added pod {} with address {}", &request.name, &pod_address);
 
         Ok(PodResponse {
-            id: pod_address,
+            address: pod_address,
             name: request.name,
-            description: request.description,
-            metadata: request.metadata,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    // Maps to PodManager::upload_pod()
+    async fn upload_pod(&self, request: UploadPodRequest) -> Result<UploadPodResponse, String> {
+        info!("Uploading pod {}", &request.address);
+
+        // Extract all data we need and drop all locks before any await
+        let (client, wallet, mut data_store, mut keystore, mut graph) = {
+            let client = self.client.lock().unwrap()
+                .take()
+                .ok_or("Client not initialized")?;
+            let wallet = self.wallet.lock().unwrap()
+                .take()
+                .ok_or("Wallet not initialized")?;
+            let data_store = self.data_store.lock().unwrap()
+                .take()
+                .ok_or("DataStore not initialized")?;
+            let keystore = self.keystore.lock().unwrap()
+                .take()
+                .ok_or("KeyStore not initialized")?;
+            let graph = self.graph.lock().unwrap()
+                .take()
+                .ok_or("Graph not initialized")?;
+            (client, wallet, data_store, keystore, graph)
+        };
+        // All MutexGuards are dropped here
+
+        // Now we can safely use async operations
+        let mut podman = PodManager::new(
+            client.clone(),
+            &wallet,
+            &mut data_store,
+            &mut keystore,
+            &mut graph
+        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+
+        // Use the PodManager
+        podman.upload_pod(&request.address).await
+            .map_err(|e| format!("Failed to upload pod {}: {}", &request.address, e))?;
+
+        // Put the components back
+        {
+            *self.client.lock().unwrap() = Some(client);
+            *self.wallet.lock().unwrap() = Some(wallet);
+            *self.data_store.lock().unwrap() = Some(data_store);
+            *self.keystore.lock().unwrap() = Some(keystore);
+            *self.graph.lock().unwrap() = Some(graph);
+        }
+
+        info!("Uploaded pod {} successfully", &request.address);
+
+        Ok(UploadPodResponse {
+            address: request.address.clone(),
+            message: format!("Uploaded pod {} successfully", request.address),
+            timestamp: chrono::Utc::now().to_rfc3339(),
         })
     }
 
@@ -579,8 +619,8 @@ impl PodService {
     }
 
     // Maps to PodManager::put_subject_data()
-    async fn put_subject_data(&self, id: &str, subject: &str, request: SubjectDataRequest) -> Result<Value, String> {
-        info!("Putting subject data for {} into pod {}", subject, id);
+    async fn put_subject_data(&self, pod_address: &str, subject: &str, request: SubjectDataRequest) -> Result<Value, String> {
+        info!("Putting subject data for {} into pod {}", subject, pod_address);
 
         // Extract all data we need and drop all locks before any await
         let (client, wallet, mut data_store, mut keystore, mut graph) = {
@@ -617,7 +657,7 @@ impl PodService {
             .map_err(|e| format!("Failed to serialize data: {}", e))?;
 
         // Use the PodManager
-        podman.put_subject_data(id, subject, &data_string).await
+        podman.put_subject_data(pod_address, subject, &data_string).await
             .map_err(|e| format!("Failed to put subject data: {}", e))?;
 
         // Put the components back
@@ -629,7 +669,7 @@ impl PodService {
             *self.graph.lock().unwrap() = Some(graph);
         }
 
-        info!("Subject data updated successfully for {} in pod {}", subject, id);
+        info!("Subject data updated successfully for {} in pod {}", subject, pod_address);
 
         Ok(request.data)
     }
@@ -739,8 +779,8 @@ impl PodService {
     }
 
     // Maps to PodManager::search()
-    async fn search(&self, request: SearchRequest) -> Result<SearchResponse, String> {
-        info!("Searching for: {}", request.query);
+    async fn search(&self, query: Value) -> Result<Value, String> {
+        info!("Searching for: {}", query.to_string());
 
         // Extract all data we need and drop all locks before any await
         let (client, wallet, mut data_store, mut keystore, mut graph) = {
@@ -772,16 +812,8 @@ impl PodService {
             &mut graph
         ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Convert SearchRequest to the format expected by PodManager
-        // PodManager::search expects a Value, so we'll convert the query string to JSON
-        let search_query = serde_json::json!({
-            "query": request.query,
-            "filters": request.filters,
-            "limit": request.limit
-        });
-
         // Use the PodManager
-        let search_results = podman.search(search_query).await
+        let results = podman.search(query.clone()).await
             .map_err(|e| format!("Failed to search: {}", e))?;
 
         // Put the components back
@@ -793,33 +825,9 @@ impl PodService {
             *self.graph.lock().unwrap() = Some(graph);
         }
 
-        info!("Search completed for: {}", request.query);
+        info!("Search completed for: {}", query);
 
-        // Convert the search results to our SearchResponse format
-        // This assumes search_results is a Value containing an array of results
-        let results = if let Some(results_array) = search_results.as_array() {
-            results_array.iter().enumerate().map(|(index, result)| SearchResult {
-                // Convert each result Value to our SearchResult format
-                // This is a simplified conversion - you might need to adjust based on actual result structure
-                id: result.get("id").and_then(|v| v.as_str()).unwrap_or(&format!("result_{}", index)).to_string(),
-                title: result.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled").to_string(),
-                description: result.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                score: result.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0),
-                metadata: result.get("metadata").and_then(|v| v.as_object()).map(|obj| {
-                    obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-                }),
-            }).collect()
-        } else {
-            vec![]
-        };
-
-        let total_count = results.len();
-
-        Ok(SearchResponse {
-            results,
-            total_count,
-            query: request.query,
-        })
+        Ok(results)
     }
 
 
@@ -841,7 +849,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
-                    "colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug".into()
+                    "colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug,autonomi=error".into()
                 })
         )
         .with(
@@ -965,11 +973,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .interact()?;
 
         let mnemonic = if generate_new {
-            // Generate new mnemonic (this would need to be implemented in colonylib)
-            // For now, prompt user to enter one
-            Input::<String>::new()
-                .with_prompt("Enter a BIP39 12-word mnemonic")
-                .interact_text()?
+            // Generate new mnemonic using BIP39
+            let new_mnemonic = Mnemonic::generate(12)
+                .map_err(|e| format!("Failed to generate BIP39 mnemonic: {}", e))?;
+            println!("Generated BIP39 12-word mnemonic: {}", new_mnemonic.to_string());
+            new_mnemonic.to_string()
         } else {
             Input::<String>::new()
                 .with_prompt("Enter your existing BIP39 12-word mnemonic")
@@ -982,12 +990,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Prompt for Ethereum wallet private key
         let wallet_key = Input::<String>::new()
+            .allow_empty(true)
             .with_prompt("Enter your Ethereum wallet private key")
             .interact_text()?;
 
         // Set wallet key
-        keystore.set_wallet_key(wallet_key)
+        if wallet_key.is_empty() {
+            println!("No wallet key provided, using default key");
+            keystore.set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
             .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+        } else {
+            keystore.set_wallet_key(wallet_key)
+            .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+        }
 
         // Save KeyStore to file
         let mut file = fs::File::create(&keystore_path)
@@ -1135,20 +1150,18 @@ fn create_router(state: AppState) -> Router {
 
     // Protected routes (authentication required)
     let protected_routes = Router::new()
-        // Legacy synchronous endpoints (kept for backward compatibility)
-        .route("/api/v1/cache", put(upload_all).post(refresh_cache))
-        .route("/api/v1/cache/{depth}", post(refresh_ref))
-        .route("/api/v1/search", get(search))
-        .route("/api/v1/search/subject/{subject}", get(get_subject_data))
-        // New asynchronous job-based endpoints
+        // Asynchronous job-based endpoints
         .route("/api/v1/jobs/cache/refresh", post(start_refresh_cache_job))
         .route("/api/v1/jobs/cache/upload", post(start_upload_all_job))
+        .route("/api/v1/jobs/cache/upload/{address}", post(start_upload_pod_job))
         .route("/api/v1/jobs/cache/refresh/{depth}", post(start_refresh_ref_job))
         .route("/api/v1/jobs/search", post(start_search_job))
         .route("/api/v1/jobs/search/subject/{subject}", post(start_get_subject_data_job))
         .route("/api/v1/jobs/{job_id}", get(get_job_status))
         .route("/api/v1/jobs/{job_id}/result", get(get_job_result))
-        // Other endpoints
+        // Synchronous endpoints
+        .route("/api/v1/search", get(search))
+        .route("/api/v1/search/subject/{subject}", get(get_subject_data))
         .route("/api/v1/pods", post(add_pod))
         .route("/api/v1/pods/{pod}/{subject}", put(put_subject_data))
         .route("/api/v1/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
@@ -1242,55 +1255,6 @@ async fn health_check() -> Json<HealthResponse> {
 // PodManager REST endpoint handlers
 
 #[instrument(skip(state))]
-async fn refresh_cache(State(state): State<AppState>) -> Result<Json<CacheResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Refreshing cache");
-
-    match state.pod_service.refresh_cache().await {
-        Ok(response) => {
-            info!("Cache refreshed successfully");
-            Ok(Json(response))
-        }
-        Err(err) => {
-            error!("Failed to refresh cache: {}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "CACHE_REFRESH_FAILED".to_string(),
-                    message: err,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ))
-        }
-    }
-}
-
-#[instrument(skip(state))]
-async fn refresh_ref(
-    State(state): State<AppState>,
-    Path(depth): Path<u64>,
-) -> Result<Json<RefreshResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Refreshing pod references from depth {}", depth);
-
-    match state.pod_service.refresh_ref(depth).await {
-        Ok(pods) => {
-            debug!("Retrieved pod references up to depth {}", depth);
-            Ok(Json(pods))
-        }
-        Err(err) => {
-            error!("Failed to refresh pod references: {}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "REFRESH_REF_FAILED".to_string(),
-                    message: err,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ))
-        }
-    }
-}
-
-#[instrument(skip(state))]
 async fn add_pod(
     State(state): State<AppState>,
     Json(request): Json<CreatePodRequest>,
@@ -1299,7 +1263,7 @@ async fn add_pod(
 
     match state.pod_service.add_pod(request).await {
         Ok(pod) => {
-            info!("Pod added successfully: {}", pod.id);
+            info!("Pod added successfully: {}", pod.address);
             Ok(Json(pod))
         }
         Err(err) => {
@@ -1308,29 +1272,6 @@ async fn add_pod(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "ADD_POD_FAILED".to_string(),
-                    message: err,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ))
-        }
-    }
-}
-
-#[instrument(skip(state))]
-async fn upload_all(State(state): State<AppState>) -> Result<Json<UploadResponse>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Uploading all pods");
-
-    match state.pod_service.upload_all().await {
-        Ok(response) => {
-            info!("Upload completed");
-            Ok(Json(response))
-        }
-        Err(err) => {
-            error!("Failed to upload all pods: {}", err);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "UPLOAD_ALL_FAILED".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
@@ -1466,8 +1407,8 @@ async fn remove_pod_ref(
 async fn search(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
-) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let query = match params.get("q") {
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    let query = match params.get("query") {
         Some(query) => query.clone(),
         None => {
             warn!("Missing query parameter for search");
@@ -1482,20 +1423,14 @@ async fn search(
         }
     };
 
-    let limit = params.get("limit")
-        .and_then(|l| l.parse::<usize>().ok());
-
-    let search_request = SearchRequest {
-        query: query.clone(),
-        filters: None,
-        limit,
-    };
-
     info!("Searching for: {}", query);
 
-    match state.pod_service.search(search_request).await {
+    // convert query string to a JSON object
+    let query_json: Value = serde_json::json!({ "query": query });
+
+    match state.pod_service.search(query_json).await {
         Ok(response) => {
-            debug!("Search completed: {} results for query '{}'", response.total_count, query);
+            debug!("Search completed for query '{}'", query);
             Ok(Json(response))
         }
         Err(err) => {
@@ -1571,6 +1506,57 @@ async fn start_refresh_cache_job(
         }
         Err(err) => {
             error!("Failed to create refresh cache job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn start_upload_pod_job(
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting upload pod job");
+
+    match state.job_manager.create_job(JobType::UploadPod).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some("Starting upload pod".to_string()), Some(0.1)).await;
+
+                let request = UploadPodRequest {
+                    address: address.clone(),
+                };
+                match state_clone.pod_service.upload_pod(request).await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                    }
+                    Err(err) => {
+                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: "Upload all job started".to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create upload all job: {}", err);
             Err((
                 StatusCode::CONFLICT,
                 Json(ErrorResponse {
@@ -1683,7 +1669,7 @@ async fn start_search_job(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let query = match params.get("q") {
+    let query = match params.get("query") {
         Some(query) => query.clone(),
         None => {
             warn!("Missing query parameter for search job");
@@ -1691,7 +1677,7 @@ async fn start_search_job(
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: "MISSING_PARAMETER".to_string(),
-                    message: "q parameter is required".to_string(),
+                    message: "query parameter is required".to_string(),
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
             ));
@@ -1699,25 +1685,20 @@ async fn start_search_job(
     };
 
     info!("Starting search job for: {}", query);
+    // convert query string to a JSON object
+    let query_json: Value = serde_json::json!({ "query": query });
 
     match state.job_manager.create_job(JobType::Search).await {
         Ok(job_id) => {
             let job_id_clone = job_id.clone();
             let state_clone = state.clone();
-            let query_clone = query.clone();
+            let query_json_clone = query_json.clone();
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_clone)), Some(0.1)).await;
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_json_clone)), Some(0.1)).await;
 
-                let limit = params.get("limit").and_then(|l| l.parse::<usize>().ok());
-                let search_request = SearchRequest {
-                    query: query_clone,
-                    filters: None,
-                    limit,
-                };
-
-                match state_clone.pod_service.search(search_request).await {
+                match state_clone.pod_service.search(query_json_clone).await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
                         state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
@@ -1925,8 +1906,6 @@ mod tests {
         let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = CreatePodRequest {
             name: "test-pod".to_string(),
-            description: Some("A test pod".to_string()),
-            metadata: Some([("env".to_string(), json!("test"))].into_iter().collect()),
         };
 
         let result = service.add_pod(request).await;
@@ -1934,8 +1913,7 @@ mod tests {
 
         let pod = result.unwrap();
         assert_eq!(pod.name, "test-pod");
-        assert_eq!(pod.description, Some("A test pod".to_string()));
-        assert!(pod.id.len() > 0);
+        assert!(pod.address.len() > 0);
     }
 
     #[tokio::test]
@@ -2041,7 +2019,6 @@ mod tests {
         let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = SubjectDataRequest {
             data: json!({"key": "value"}),
-            metadata: None,
         };
 
         let result = service.put_subject_data("test-id", "test-subject",request).await;
@@ -2057,7 +2034,6 @@ mod tests {
         let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = PodRefRequest {
             pod_ref: "test-ref".to_string(),
-            metadata: None,
         };
 
         let result = service.add_pod_ref("test-id", request).await;
@@ -2076,19 +2052,18 @@ mod tests {
     async fn test_pod_service_search() {
         let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
         let service = PodService::new(client, wallet, data_store, keystore, graph);
-        let request = SearchRequest {
-            query: "test query".to_string(),
-            filters: None,
-            limit: Some(10),
-        };
+        let request = serde_json::json!({
+            "type": "text",
+            "text": "search term",
+            "limit": 50
+        });
 
         let result = service.search(request).await;
         assert!(result.is_ok());
 
-        let response = result.unwrap();
-        assert_eq!(response.query, "test query");
-        assert_eq!(response.total_count, 0);
-        assert_eq!(response.results.len(), 0);
+        let response:Value = result.unwrap();
+        //FIXME: better test here
+        assert!(response.is_object());
     }
 
     #[test]

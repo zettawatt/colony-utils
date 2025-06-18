@@ -2018,6 +2018,7 @@ dependencies = [
  "autonomi",
  "axum 0.8.4",
  "axum-extra",
+ "bip39",
  "chrono",
  "clap",
  "colonylib",
@@ -2040,8 +2041,9 @@ dependencies = [
 
 [[package]]
 name = "colonylib"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
+ "ant-networking",
  "autonomi",
  "bip39",
  "blsttc",
