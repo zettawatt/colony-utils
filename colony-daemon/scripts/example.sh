@@ -119,7 +119,7 @@ if [ "$POD_ADDRESS" != "null" ] && [ ! -z "$POD_ADDRESS" ]; then
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{
-        "pod_ref": "ant://8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e"
+        "pod_ref": "8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e"
       }'
 
     # echo -e "\n🗑️ Testing remove pod reference (synchronous)..."

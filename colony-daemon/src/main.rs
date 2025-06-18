@@ -825,6 +825,68 @@ impl PodService {
         Ok(results)
     }
 
+    // Maps to PodManager::list_my_pods()
+    async fn list_my_pods(&self) -> Result<Vec<PodResponse>, String> {
+        info!("Listing my pods");
+
+        // Extract all data we need and drop all locks before any await
+        let (client, wallet, mut data_store, mut keystore, mut graph) = {
+            let client = self.client.lock().unwrap()
+                .take()
+                .ok_or("Client not initialized")?;
+            let wallet = self.wallet.lock().unwrap()
+                .take()
+                .ok_or("Wallet not initialized")?;
+            let data_store = self.data_store.lock().unwrap()
+                .take()
+                .ok_or("DataStore not initialized")?;
+            let keystore = self.keystore.lock().unwrap()
+                .take()
+                .ok_or("KeyStore not initialized")?;
+            let graph = self.graph.lock().unwrap()
+                .take()
+                .ok_or("Graph not initialized")?;
+            (client, wallet, data_store, keystore, graph)
+        };
+        // All MutexGuards are dropped here
+
+        // Now we can safely use async operations
+        let podman = PodManager::new(
+            client.clone(),
+            &wallet,
+            &mut data_store,
+            &mut keystore,
+            &mut graph
+        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+
+        // Use the PodManager to list pods
+        let pods = podman.list_my_pods()
+            .map_err(|e| format!("Failed to list pods: {}", e))?;
+
+        // Put the components back
+        {
+            *self.client.lock().unwrap() = Some(client);
+            *self.wallet.lock().unwrap() = Some(wallet);
+            *self.data_store.lock().unwrap() = Some(data_store);
+            *self.keystore.lock().unwrap() = Some(keystore);
+            *self.graph.lock().unwrap() = Some(graph);
+        }
+
+        info!("Listed {} pods successfully", pods.len());
+
+        // Convert the pods to PodResponse format
+        // Since list_my_pods returns Vec<String> (pod addresses), we'll use the address as both address and name
+        let pod_responses: Vec<PodResponse> = pods.into_iter().map(|address| {
+            PodResponse {
+                address: address.clone(),
+                name: address, // Use address as name since we don't have separate names
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }
+        }).collect();
+
+        Ok(pod_responses)
+    }
+
 
 }
 
@@ -1157,7 +1219,7 @@ fn create_router(state: AppState) -> Router {
         // Synchronous endpoints
         .route("/api/v1/search", get(search))
         .route("/api/v1/search/subject/{subject}", get(get_subject_data))
-        .route("/api/v1/pods", post(add_pod))
+        .route("/api/v1/pods", get(list_my_pods).post(add_pod))
         .route("/api/v1/pods/{pod}/{subject}", put(put_subject_data))
         .route("/api/v1/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
@@ -1248,6 +1310,31 @@ async fn health_check() -> Json<HealthResponse> {
 }
 
 // PodManager REST endpoint handlers
+
+#[instrument(skip(state))]
+async fn list_my_pods(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PodResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Listing my pods");
+
+    match state.pod_service.list_my_pods().await {
+        Ok(pods) => {
+            info!("Listed {} pods successfully", pods.len());
+            Ok(Json(pods))
+        }
+        Err(err) => {
+            error!("Failed to list pods: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "LIST_PODS_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
 
 #[instrument(skip(state))]
 async fn add_pod(
