@@ -1406,31 +1406,14 @@ async fn remove_pod_ref(
 #[instrument(skip(state))]
 async fn search(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+    Json(query): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
-    let query = match params.get("query") {
-        Some(query) => query.clone(),
-        None => {
-            warn!("Missing query parameter for search");
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "MISSING_PARAMETER".to_string(),
-                    message: "q parameter is required".to_string(),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ));
-        }
-    };
 
-    info!("Searching for: {}", query);
+    info!("Searching for: {}", query.to_string());
 
-    // convert query string to a JSON object
-    let query_json: Value = serde_json::json!({ "query": query });
-
-    match state.pod_service.search(query_json).await {
+    match state.pod_service.search(query.clone()).await {
         Ok(response) => {
-            debug!("Search completed for query '{}'", query);
+            debug!("Search completed for query '{}'", query.to_string());
             Ok(Json(response))
         }
         Err(err) => {
@@ -1667,38 +1650,22 @@ async fn start_refresh_ref_job(
 #[instrument(skip(state))]
 async fn start_search_job(
     State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+    Json(query): Json<Value>,
 ) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let query = match params.get("query") {
-        Some(query) => query.clone(),
-        None => {
-            warn!("Missing query parameter for search job");
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "MISSING_PARAMETER".to_string(),
-                    message: "query parameter is required".to_string(),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ));
-        }
-    };
 
-    info!("Starting search job for: {}", query);
-    // convert query string to a JSON object
-    let query_json: Value = serde_json::json!({ "query": query });
+    info!("Starting search job for: {}", query.to_string());
 
     match state.job_manager.create_job(JobType::Search).await {
         Ok(job_id) => {
             let job_id_clone = job_id.clone();
             let state_clone = state.clone();
-            let query_json_clone = query_json.clone();
+            let query_clone = query.clone();
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_json_clone)), Some(0.1)).await;
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_clone.to_string())), Some(0.1)).await;
 
-                match state_clone.pod_service.search(query_json_clone).await {
+                match state_clone.pod_service.search(query_clone).await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
                         state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
