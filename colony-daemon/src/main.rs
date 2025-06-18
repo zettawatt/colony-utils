@@ -73,11 +73,6 @@ struct PodRefRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SubjectDataRequest {
-    data: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct SearchResult {
     address: String,
     title: String,
@@ -565,8 +560,8 @@ impl PodService {
     }
 
     // Maps to PodManager::get_subject_data()
-    async fn get_subject_data(&self, id: &str) -> Result<Value, String> {
-        info!("Getting subject data for: {}", id);
+    async fn get_subject_data(&self, address: &str) -> Result<Value, String> {
+        info!("Getting subject data for: {}", address);
 
         // Extract all data we need and drop all locks before any await
         let (client, wallet, mut data_store, mut keystore, mut graph) = {
@@ -599,7 +594,7 @@ impl PodService {
         ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
         // Use the PodManager
-        let subject_data = podman.get_subject_data(id).await
+        let subject_data = podman.get_subject_data(address).await
             .map_err(|e| format!("Failed to get subject data: {}", e))?;
 
         // Put the components back
@@ -611,7 +606,7 @@ impl PodService {
             *self.graph.lock().unwrap() = Some(graph);
         }
 
-        info!("Subject data retrieved successfully for {}", id);
+        info!("Subject data retrieved successfully for {}", address);
 
         // Parse the subject data string as JSON
         serde_json::from_str(&subject_data)
@@ -619,7 +614,7 @@ impl PodService {
     }
 
     // Maps to PodManager::put_subject_data()
-    async fn put_subject_data(&self, pod_address: &str, subject: &str, request: SubjectDataRequest) -> Result<Value, String> {
+    async fn put_subject_data(&self, pod_address: &str, subject: &str, data: Value) -> Result<Value, String> {
         info!("Putting subject data for {} into pod {}", subject, pod_address);
 
         // Extract all data we need and drop all locks before any await
@@ -653,7 +648,7 @@ impl PodService {
         ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
         // Convert the JSON data to string for PodManager
-        let data_string = serde_json::to_string(&request.data)
+        let data_string = serde_json::to_string(&data)
             .map_err(|e| format!("Failed to serialize data: {}", e))?;
 
         // Use the PodManager
@@ -671,7 +666,7 @@ impl PodService {
 
         info!("Subject data updated successfully for {} in pod {}", subject, pod_address);
 
-        Ok(request.data)
+        Ok(data)
     }
 
     // Maps to PodManager::add_pod_ref()
@@ -1283,17 +1278,17 @@ async fn add_pod(
 #[instrument(skip(state))]
 async fn get_subject_data(
     State(state): State<AppState>,
-    Path(pod): Path<String>,
+    Path(subject): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
-    info!("Getting subject data for: {}", pod);
+    info!("Getting subject data for: {}", subject);
 
-    match state.pod_service.get_subject_data(&pod).await {
+    match state.pod_service.get_subject_data(&subject).await {
         Ok(data) => {
-            debug!("Subject data retrieved successfully for: {}", pod);
+            debug!("Subject data retrieved successfully for: {}", subject);
             Ok(Json(data))
         }
         Err(err) => {
-            warn!("Subject data not found for: {}", pod);
+            warn!("Subject data not found for: {}", subject);
             Err((
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -1309,13 +1304,12 @@ async fn get_subject_data(
 #[instrument(skip(state))]
 async fn put_subject_data(
     State(state): State<AppState>,
-    Path(pod): Path<String>,
-    Path(subject): Path<String>,
-    Json(request): Json<SubjectDataRequest>,
+    Path((pod, subject)): Path<(String, String)>,
+    Json(data): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     info!("Putting subject data for {} in pod {}", subject, pod);
 
-    match state.pod_service.put_subject_data(&pod, &subject, request).await {
+    match state.pod_service.put_subject_data(&pod, &subject, data).await {
         Ok(data) => {
             info!("Subject data updated successfully for {} in pod {}", subject, pod);
             Ok(Json(data))
@@ -1984,9 +1978,7 @@ mod tests {
     async fn test_pod_service_put_subject_data() {
         let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
         let service = PodService::new(client, wallet, data_store, keystore, graph);
-        let request = SubjectDataRequest {
-            data: json!({"key": "value"}),
-        };
+        let request = json!({"key": "value"});
 
         let result = service.put_subject_data("test-id", "test-subject",request).await;
         assert!(result.is_ok());
