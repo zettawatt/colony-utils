@@ -73,14 +73,6 @@ struct PodRefRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SearchResult {
-    address: String,
-    title: String,
-    score: f64,
-    metadata: Option<HashMap<String, Value>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct CacheResponse {
     status: String,
     message: String,
@@ -826,7 +818,7 @@ impl PodService {
     }
 
     // Maps to PodManager::list_my_pods()
-    async fn list_my_pods(&self) -> Result<Vec<PodResponse>, String> {
+    async fn list_my_pods(&self) -> Result<Value, String> {
         info!("Listing my pods");
 
         // Extract all data we need and drop all locks before any await
@@ -860,7 +852,7 @@ impl PodService {
         ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
         // Use the PodManager to list pods
-        let pods = podman.list_my_pods()
+        let results = podman.list_my_pods()
             .map_err(|e| format!("Failed to list pods: {}", e))?;
 
         // Put the components back
@@ -872,19 +864,9 @@ impl PodService {
             *self.graph.lock().unwrap() = Some(graph);
         }
 
-        info!("Listed {} pods successfully", pods.len());
+        info!("Listed pods successfully");
 
-        // Convert the pods to PodResponse format
-        // Since list_my_pods returns Vec<String> (pod addresses), we'll use the address as both address and name
-        let pod_responses: Vec<PodResponse> = pods.into_iter().map(|address| {
-            PodResponse {
-                address: address.clone(),
-                name: address, // Use address as name since we don't have separate names
-                timestamp: chrono::Utc::now().to_rfc3339(),
-            }
-        }).collect();
-
-        Ok(pod_responses)
+        Ok(results)
     }
 
 
@@ -1314,13 +1296,13 @@ async fn health_check() -> Json<HealthResponse> {
 #[instrument(skip(state))]
 async fn list_my_pods(
     State(state): State<AppState>,
-) -> Result<Json<Vec<PodResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     info!("Listing my pods");
 
     match state.pod_service.list_my_pods().await {
-        Ok(pods) => {
-            info!("Listed {} pods successfully", pods.len());
-            Ok(Json(pods))
+        Ok(response) => {
+            info!("Listed pods successfully");
+            Ok(Json(response))
         }
         Err(err) => {
             error!("Failed to list pods: {}", err);

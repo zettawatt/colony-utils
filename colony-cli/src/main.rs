@@ -712,21 +712,9 @@ async fn handle_pods(config: &Config) -> anyhow::Result<()> {
         .await?;
 
     if response.status().is_success() {
-        let pods: Vec<PodResponse> = response.json().await?;
-
-        if pods.is_empty() {
-            println!("{}", "📭 No pods found.".yellow());
-        } else {
-            println!("\n{} {}", "📦 Found".green().bold(), format!("{} pods:", pods.len()).green().bold());
-            for (i, pod) in pods.iter().enumerate() {
-                println!("{}. {} {} ({})",
-                    (i + 1).to_string().blue(),
-                    "📦".green(),
-                    pod.name.yellow().bold(),
-                    pod.address.cyan()
-                );
-            }
-        }
+        let result: Value = response.json().await?;
+        println!("\n{}", "✅ Found local pod information!".green().bold());
+        print_json_pretty(&result);
     } else {
         let error_text = response.text().await?;
         println!("{} {}", "❌ Failed to list pods:".red(), error_text);
