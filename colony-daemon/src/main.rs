@@ -422,6 +422,10 @@ impl PodService {
         let (pod_address, _pod_data) = podman.add_pod(&request.name).await
             .map_err(|e| format!("Failed to add pod: {}", e))?;
 
+        let key_store_file = podman.data_store.get_keystore_path();
+        let mut file = std::fs::File::create(key_store_file).unwrap();
+        let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+
         // Put the components back
         {
             *self.client.lock().unwrap() = Some(client);
@@ -647,6 +651,11 @@ impl PodService {
         podman.put_subject_data(pod_address, subject, &data_string).await
             .map_err(|e| format!("Failed to put subject data: {}", e))?;
 
+
+        let key_store_file = podman.data_store.get_keystore_path();
+        let mut file = std::fs::File::create(key_store_file).unwrap();
+        let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+        
         // Put the components back
         {
             *self.client.lock().unwrap() = Some(client);
@@ -699,6 +708,10 @@ impl PodService {
         podman.add_pod_ref(id, &request.pod_ref).await
             .map_err(|e| format!("Failed to add pod reference: {}", e))?;
 
+        let key_store_file = podman.data_store.get_keystore_path();
+        let mut file = std::fs::File::create(key_store_file).unwrap();
+        let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+        
         // Put the components back
         {
             *self.client.lock().unwrap() = Some(client);
@@ -888,7 +901,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
-                    "colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug,autonomi=error".into()
+                    //"colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug,autonomi=error".into()
+                    "".into()
                 })
         )
         .with(

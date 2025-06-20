@@ -114,7 +114,10 @@ The `--pass` argument supports multiple formats:
 #### Environment Variables
 
 The daemon respects standard logging environment variables:
-- `RUST_LOG` - Set logging level (e.g., `debug`, `info`, `warn`, `error`)
+- `RUST_LOG` - Set logging level for all (e.g., `debug`, `info`, `warn`, `error`) or can set to a specific level of debug logging based on what you're doing. This is a good verbose default:
+```bash
+export RUST_LOG="colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug,autonomi=error"
+```
 
 #### Example Configurations
 
