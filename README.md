@@ -39,6 +39,16 @@ A user-friendly CLI tool for interacting with the colony-daemon.
 
 ### Installation
 
+There are 2 options: install from crates.io or build from source:
+
+#### From crates.io
+
+```bash
+cargo install colony-daemon colony-cli
+```
+
+#### From Source
+
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/zettawatt/colony-utils.git
@@ -50,16 +60,24 @@ A user-friendly CLI tool for interacting with the colony-daemon.
    cargo build --release
    ```
 
+3. **Move the binaries to a directory in your PATH:**
+   ```bash
+   sudo mv target/release/colony-daemon /usr/local/bin/
+   sudo mv target/release/colony-cli /usr/local/bin/
+   ```
+
+#### From Crates.io
+
 ### Running the Daemon
 
 Start the colony-daemon server:
 
 ```bash
 # Basic usage (connects to main Autonomi network on port 3000)
-./target/release/colony-daemon
+colony-daemon
 
 # Custom configuration
-./target/release/colony-daemon \
+colony-daemon \
   --port 8080 \
   --listen 0.0.0.0 \
   --network alpha \
@@ -73,19 +91,19 @@ Once the daemon is running, use the CLI to interact with it:
 
 ```bash
 # List all pods
-./target/release/colony-cli pods
+colony-cli pods
 
 # Create a new pod
-./target/release/colony-cli add pod "my-new-pod"
+colony-cli add pod "my-new-pod"
 
 # Search for content
-./target/release/colony-cli search text "example query" --limit 10
+colony-cli search text "example query" --limit 10
 
 # Refresh cache
-./target/release/colony-cli refresh
+colony-cli refresh
 
 # Upload all pods
-./target/release/colony-cli upload
+colony-cli upload
 ```
 
 ## 📖 Detailed Usage
