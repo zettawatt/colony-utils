@@ -297,6 +297,79 @@ async fn wait_for_job_completion(
     }
 }
 
+async fn wait_for_job_completion_no_auth(
+    config: &Config,
+    job_id: &str,
+    operation_name: &str,
+) -> anyhow::Result<Value> {
+    let client = Client::new();
+    let base_url = config.base_url();
+
+    // Create progress bar
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
+    pb.set_message(format!("🔄 {}", operation_name));
+
+    loop {
+        // Check job status (no auth required for public job endpoints)
+        let status_url = format!("{}/api/v1/jobs/{}", base_url, job_id);
+        let response = client
+            .get(&status_url)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let job_status: JobStatus = response.json().await?;
+            let job = job_status.job;
+
+            // Update progress bar message
+            if let Some(message) = &job.message {
+                pb.set_message(format!("🔄 {} - {}", operation_name, message));
+            }
+
+            match job.status.as_str() {
+                "completed" => {
+                    pb.finish_with_message(format!("✅ {} completed", operation_name));
+
+                    // Get the result (no auth required for public job endpoints)
+                    let result_url = format!("{}/api/v1/jobs/{}/result", base_url, job_id);
+                    let result_response = client
+                        .get(&result_url)
+                        .send()
+                        .await?;
+
+                    if result_response.status().is_success() {
+                        let job_result: JobResult = result_response.json().await?;
+                        return Ok(job_result.result.unwrap_or(json!({})));
+                    } else {
+                        let error_text = result_response.text().await?;
+                        anyhow::bail!("Failed to get job result: {}", error_text);
+                    }
+                }
+                "failed" => {
+                    pb.finish_with_message(format!("❌ {} failed", operation_name));
+                    let error_msg = job.error.unwrap_or_else(|| "Unknown error".to_string());
+                    anyhow::bail!("Job failed: {}", error_msg);
+                }
+                _ => {
+                    // Job is still running, continue polling
+                    pb.tick();
+                    sleep(Duration::from_millis(500)).await;
+                }
+            }
+        } else {
+            pb.finish_with_message(format!("❌ Failed to check {} status", operation_name));
+            let error_text = response.text().await?;
+            anyhow::bail!("Failed to check job status: {}", error_text);
+        }
+    }
+}
+
 fn print_json_pretty(value: &Value) {
     if let Ok(pretty) = serde_json::to_string_pretty(value) {
         println!("{}", pretty);
@@ -542,7 +615,6 @@ async fn main() -> anyhow::Result<()> {
 async fn handle_refresh(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
     println!("{}", "🔄 Starting cache refresh...".cyan());
 
-    let token = get_jwt_token(config).await?;
     let client = Client::new();
     let base_url = config.base_url();
 
@@ -560,14 +632,13 @@ async fn handle_refresh(config: &Config, matches: &ArgMatches) -> anyhow::Result
 
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .send()
         .await?;
 
     if response.status().is_success() {
         let job_response: JobResponse = response.json().await?;
-        let result = wait_for_job_completion(config, &token, &job_response.job_id, &operation_name).await?;
+        let result = wait_for_job_completion_no_auth(config, &job_response.job_id, &operation_name).await?;
 
         println!("\n{}", "📋 Result:".green().bold());
         print_json_pretty(&result);
@@ -622,7 +693,6 @@ async fn handle_upload(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 }
 
 async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
-    let token = get_jwt_token(config).await?;
     let client = Client::new();
     let base_url = config.base_url();
 
@@ -636,9 +706,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 "sparql": query
             });
 
+            // Use asynchronous job-based search endpoint (public)
             let response = client
                 .post(&format!("{}/api/v1/jobs/search", base_url))
-                .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -646,7 +716,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion(config, &token, &job_response.job_id, "SPARQL search").await?;
+                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "SPARQL search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 print_json_pretty(&result);
@@ -671,9 +741,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 "limit": limit
             });
 
+            // Use asynchronous job-based search endpoint (public)
             let response = client
                 .post(&format!("{}/api/v1/jobs/search", base_url))
-                .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -681,7 +751,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion(config, &token, &job_response.job_id, "Text search").await?;
+                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Text search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 print_json_pretty(&result);
@@ -706,9 +776,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 "limit": limit
             });
 
+            // Use asynchronous job-based search endpoint (public)
             let response = client
                 .post(&format!("{}/api/v1/jobs/search", base_url))
-                .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -716,7 +786,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion(config, &token, &job_response.job_id, "Type search").await?;
+                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Type search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 print_json_pretty(&result);
@@ -741,9 +811,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 "limit": limit
             });
 
+            // Use asynchronous job-based search endpoint (public)
             let response = client
                 .post(&format!("{}/api/v1/jobs/search", base_url))
-                .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -751,7 +821,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion(config, &token, &job_response.job_id, "Predicate search").await?;
+                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Predicate search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 print_json_pretty(&result);
@@ -765,16 +835,16 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
             let subject = sub_matches.get_one::<String>("subject").unwrap();
             println!("{} {}", "🔍 Searching by subject:".cyan(), subject.yellow());
 
+            // Use asynchronous job-based search endpoint (public)
             let response = client
                 .post(&format!("{}/api/v1/jobs/search/subject/{}", base_url, subject))
-                .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .send()
                 .await?;
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion(config, &token, &job_response.job_id, "Subject search").await?;
+                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Subject search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 print_json_pretty(&result);
