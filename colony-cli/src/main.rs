@@ -400,59 +400,182 @@ fn print_search_results_table(value: &Value) {
             return;
         }
 
-        // Group bindings by subject to collect name and description for each subject
-        let mut subjects = std::collections::HashMap::new();
+        // Check if this is a subject search by looking at the SPARQL variable structure
+        // Subject searches use 'graph', 'predicate', 'object' variables
+        // General searches use 'subject', 'predicate', 'object' variables
+        let has_graph_vars = bindings_array.iter().any(|binding| {
+            binding.get("graph").is_some() && binding.get("predicate").is_some() && binding.get("object").is_some()
+        });
 
-        for binding in bindings_array {
-            // Extract subject address
-            let subject_address = if let Some(subject_obj) = binding.get("subject") {
-                if let Some(subject_value) = subject_obj.get("value") {
-                    if let Some(subject_str) = subject_value.as_str() {
-                        // Extract the address part from ant:// URIs
-                        if subject_str.starts_with("ant://") {
-                            subject_str.strip_prefix("ant://").unwrap_or(subject_str).to_string()
+        let has_subject_vars = bindings_array.iter().any(|binding| {
+            binding.get("subject").is_some()
+        });
+
+        if has_graph_vars && !has_subject_vars {
+            // This is a subject search - display detailed information
+            print_subject_details(value, bindings_array);
+        } else {
+            // This is a general search - display table format
+            print_subjects_table(bindings_array);
+        }
+        return;
+    }
+
+    // Fallback to pretty JSON if not SPARQL format
+    print_json_pretty(value);
+}
+
+fn print_subject_details(value: &Value, bindings_array: &[Value]) {
+    // For subject searches, collect unique pods from 'graph' field and predicate-object pairs from 'predicate' and 'object' fields
+    let mut unique_pods = std::collections::HashSet::new();
+    let mut predicate_objects = Vec::new();
+
+    for binding in bindings_array {
+        // Extract pod address from 'graph' field
+        if let Some(graph_obj) = binding.get("graph") {
+            if let Some(graph_value) = graph_obj.get("value") {
+                if let Some(graph_str) = graph_value.as_str() {
+                    unique_pods.insert(graph_str.to_string());
+                }
+            }
+        }
+
+        // Extract predicate-object pairs from 'predicate' and 'object' fields
+        if let (Some(predicate_obj), Some(object_obj)) = (binding.get("predicate"), binding.get("object")) {
+            if let (Some(predicate_str), Some(object_str)) = (
+                predicate_obj.get("value").and_then(|v| v.as_str()),
+                object_obj.get("value").and_then(|v| v.as_str())
+            ) {
+                predicate_objects.push((predicate_str.to_string(), object_str.to_string()));
+            }
+        }
+    }
+
+    // Display pods found
+    if !unique_pods.is_empty() {
+        println!("{}", "📦 Found in pods:".cyan().bold());
+        for pod in &unique_pods {
+            let pod_display = if pod.starts_with("ant://") {
+                pod.strip_prefix("ant://").unwrap_or(pod)
+            } else {
+                pod
+            };
+            println!("  {}", pod_display.blue());
+        }
+        println!();
+    }
+
+    // Also check for pods_found in the response (fallback)
+    if let Some(pods_found) = value.get("pods_found") {
+        if let Some(pods_array) = pods_found.as_array() {
+            if !pods_array.is_empty() && unique_pods.is_empty() {
+                println!("{}", "📦 Found in pods:".cyan().bold());
+                for pod in pods_array {
+                    if let Some(pod_str) = pod.as_str() {
+                        let pod_display = if pod_str.starts_with("ant://") {
+                            pod_str.strip_prefix("ant://").unwrap_or(pod_str)
                         } else {
-                            subject_str.to_string()
-                        }
-                    } else { continue; }
+                            pod_str
+                        };
+                        println!("  {}", pod_display.blue());
+                    }
+                }
+                println!();
+            }
+        }
+    }
+
+    if !predicate_objects.is_empty() {
+        println!("{}", "📋 Properties:".cyan().bold());
+        println!("{}", format!("{:<50} {}", "Predicate", "Object").cyan().bold());
+        println!("{}", "─".repeat(172).cyan());
+
+        for (predicate, object) in predicate_objects {
+            // Strip schema.org and colonylib prefixes
+            let predicate_clean = predicate
+                .strip_prefix("http://schema.org/")
+                .unwrap_or(&predicate)
+                .strip_prefix("https://schema.org/")
+                .unwrap_or(&predicate)
+                .strip_prefix("ant://colonylib/vocabulary/0.1/predicate#")
+                .unwrap_or(&predicate);
+
+            // Truncate predicate if too long
+            let predicate_display = if predicate_clean.len() > 48 {
+                format!("{}...", &predicate_clean[..45])
+            } else {
+                predicate_clean.to_string()
+            };
+
+            // Word wrap object text to 120 characters
+            let wrapped_lines = wrap_text(&object, 120);
+
+            // Print first line with predicate
+            if let Some(first_line) = wrapped_lines.first() {
+                println!("{:<50} {}", predicate_display.green(), first_line.white());
+            }
+
+            // Print remaining lines with padding
+            for line in wrapped_lines.iter().skip(1) {
+                println!("{:<50} {}", "", line.white());
+            }
+        }
+    }
+}
+
+fn print_subjects_table(bindings_array: &[Value]) {
+    // Group bindings by subject to collect name and description for each subject
+    let mut subjects = std::collections::HashMap::new();
+
+    for binding in bindings_array {
+        // Extract subject address
+        let subject_address = if let Some(subject_obj) = binding.get("subject") {
+            if let Some(subject_value) = subject_obj.get("value") {
+                if let Some(subject_str) = subject_value.as_str() {
+                    // Extract the address part from ant:// URIs
+                    if subject_str.starts_with("ant://") {
+                        subject_str.strip_prefix("ant://").unwrap_or(subject_str).to_string()
+                    } else {
+                        subject_str.to_string()
+                    }
                 } else { continue; }
-            } else { continue; };
+            } else { continue; }
+        } else { continue; };
 
-            // Get or create subject entry
-            let subject_entry = subjects.entry(subject_address.clone()).or_insert_with(|| {
-                (String::new(), String::new(), subject_address)
-            });
+        // Get or create subject entry
+        let subject_entry = subjects.entry(subject_address.clone()).or_insert_with(|| {
+            (String::new(), String::new(), subject_address)
+        });
 
-            // Extract predicate and object
-            if let Some(predicate_obj) = binding.get("predicate") {
-                if let Some(predicate_value) = predicate_obj.get("value") {
-                    if let Some(predicate_str) = predicate_value.as_str() {
-                        if let Some(object_obj) = binding.get("object") {
-                            if let Some(object_value) = object_obj.get("value") {
-                                if let Some(object_str) = object_value.as_str() {
-                                    match predicate_str {
-                                        "http://schema.org/name" => {
-                                            subject_entry.0 = object_str.to_string();
-                                        }
-                                        "ant://colonylib/vocabulary/0.1/predicate#name" => {
-                                            subject_entry.0 = object_str.to_string();
-                                        }
-                                        "http://schema.org/description" => {
-                                            subject_entry.1 = object_str.to_string();
-                                        }
-                                        "ant://colonylib/vocabulary/0.1/predicate#addr_type" => {
-                                            match object_str {
-                                                "ant://colonylib/vocabulary/0.1/object#pod" => {
-                                                    subject_entry.1 = "Pod".to_string();
-                                                }
-                                                "ant://colonylib/vocabulary/0.1/object#pod_ref" => {
-                                                    subject_entry.1 = "Pod Reference".to_string();
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                        _ => {}
+        // Extract predicate and object
+        if let Some(predicate_obj) = binding.get("predicate") {
+            if let Some(predicate_value) = predicate_obj.get("value") {
+                if let Some(predicate_str) = predicate_value.as_str() {
+                    if let Some(object_obj) = binding.get("object") {
+                        if let Some(object_value) = object_obj.get("value") {
+                            if let Some(object_str) = object_value.as_str() {
+                                match predicate_str {
+                                    "http://schema.org/name" => {
+                                        subject_entry.0 = object_str.to_string();
                                     }
+                                    "ant://colonylib/vocabulary/0.1/predicate#name" => {
+                                        subject_entry.0 = object_str.to_string();
+                                    }
+                                    "http://schema.org/description" => {
+                                        subject_entry.1 = object_str.to_string();
+                                    }
+                                    "ant://colonylib/vocabulary/0.1/predicate#addr_type" => {
+                                        match object_str {
+                                            "ant://colonylib/vocabulary/0.1/object#pod" => {
+                                                subject_entry.1 = "Pod".to_string();
+                                            }
+                                            "ant://colonylib/vocabulary/0.1/object#pod_ref" => {
+                                                subject_entry.1 = "Pod Reference".to_string();
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -460,34 +583,57 @@ fn print_search_results_table(value: &Value) {
                 }
             }
         }
+    }
 
-        if subjects.is_empty() {
-            println!("{}", "No results found.".yellow());
-            return;
-        }
-
-        // Print table header
-        println!("{}", format!("{:<30} {:<50} {:<96}", "Name", "Description", "Address").cyan().bold());
-        println!("{}", "─".repeat(178).cyan());
-
-        // Print each subject
-        for (name, description, address) in subjects.values() {
-            // Truncate long values for table display
-            let name_display = if name.len() > 28 { format!("{}...", &name[..25]) } else { name.clone() };
-            let desc_display = if description.len() > 48 { format!("{}...", &description[..45]) } else { description.clone() };
-            let addr_display = if address.len() > 96 { format!("{}...", &address[..93]) } else { address.clone() };
-
-            println!("{:<30} {:<50} {:<96}",
-                name_display.green(),
-                desc_display.white(),
-                addr_display.blue()
-            );
-        }
+    if subjects.is_empty() {
+        println!("{}", "No results found.".yellow());
         return;
     }
 
-    // Fallback to pretty JSON if not SPARQL format
-    print_json_pretty(value);
+    // Print table header
+    println!("{}", format!("{:<30} {:<50} {:<96}", "Name", "Description", "Address").cyan().bold());
+    println!("{}", "─".repeat(178).cyan());
+
+    // Print each subject
+    for (name, description, address) in subjects.values() {
+        // Truncate long values for table display
+        let name_display = if name.len() > 28 { format!("{}...", &name[..25]) } else { name.clone() };
+        let desc_display = if description.len() > 48 { format!("{}...", &description[..45]) } else { description.clone() };
+        let addr_display = if address.len() > 96 { format!("{}...", &address[..93]) } else { address.clone() };
+
+        println!("{:<30} {:<50} {:<96}",
+            name_display.green(),
+            desc_display.white(),
+            addr_display.blue()
+        );
+    }
+}
+
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        if current_line.is_empty() {
+            current_line = word.to_string();
+        } else if current_line.len() + 1 + word.len() <= width {
+            current_line.push(' ');
+            current_line.push_str(word);
+        } else {
+            lines.push(current_line);
+            current_line = word.to_string();
+        }
+    }
+
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines
 }
 
 #[tokio::main]
