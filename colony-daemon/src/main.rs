@@ -268,618 +268,512 @@ impl PodService {
         }
     }
 
+    // Helper method to safely extract components and ensure they're always restored
+    fn extract_components(&self) -> Result<(Client, Wallet, DataStore, KeyStore, Graph), String> {
+        let client = self.client.lock().unwrap()
+            .take()
+            .ok_or("Client not initialized")?;
+        let wallet = self.wallet.lock().unwrap()
+            .take()
+            .ok_or("Wallet not initialized")?;
+        let data_store = self.data_store.lock().unwrap()
+            .take()
+            .ok_or("DataStore not initialized")?;
+        let keystore = self.keystore.lock().unwrap()
+            .take()
+            .ok_or("KeyStore not initialized")?;
+        let graph = self.graph.lock().unwrap()
+            .take()
+            .ok_or("Graph not initialized")?;
+        Ok((client, wallet, data_store, keystore, graph))
+    }
+
+    // Helper method to restore components
+    fn restore_components(&self, client: Client, wallet: Wallet, data_store: DataStore, keystore: KeyStore, graph: Graph) {
+        *self.client.lock().unwrap() = Some(client);
+        *self.wallet.lock().unwrap() = Some(wallet);
+        *self.data_store.lock().unwrap() = Some(data_store);
+        *self.keystore.lock().unwrap() = Some(keystore);
+        *self.graph.lock().unwrap() = Some(graph);
+    }
+
     // PodManager method mappings - these would interact with the actual PodManager
 
     // Maps to PodManager::refresh_cache()
     async fn refresh_cache(&self) -> Result<CacheResponse, String> {
         info!("Refreshing cache");
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        podman.refresh_cache().await
-            .map_err(|e| format!("Failed to refresh cache: {}", e))?;
+            // Use the PodManager
+            podman.refresh_cache().await
+                .map_err(|e| format!("Failed to refresh cache: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Cache refreshed successfully");
+                Ok(CacheResponse {
+                    status: "success".to_string(),
+                    message: "Cache refreshed successfully".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+            Err(e) => {
+                warn!("Failed to refresh cache: {}", e);
+                Err(e)
+            }
         }
-
-        info!("Cache refreshed successfully");
-
-        Ok(CacheResponse {
-            status: "success".to_string(),
-            message: "Cache refreshed successfully".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        })
     }
 
     // Maps to PodManager::refresh_ref() - refreshes pod references
     async fn refresh_ref(&self, depth: u64) -> Result<RefreshResponse, String> {
         info!("Refreshing pod references to depth {}", depth);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        podman.refresh_ref(depth).await
-            .map_err(|e| format!("Failed to refresh pod references: {}", e))?;
+            // Use the PodManager
+            podman.refresh_ref(depth).await
+                .map_err(|e| format!("Failed to refresh pod references: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Pod references refreshed successfully");
+                Ok(RefreshResponse {
+                    status: "success".to_string(),
+                    message: "All pods refreshed successfully".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+            Err(e) => {
+                warn!("Failed to refresh pod references: {}", e);
+                Err(e)
+            }
         }
-
-        info!("Pod references refreshed successfully");
-
-        // For now, return empty vec as we'd need to implement pod listing functionality
-        // In a full implementation, you'd query the refreshed data and convert to PodResponse
-        Ok(RefreshResponse {
-            status: "success".to_string(),
-            message: "All pods refreshed successfully".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        })
     }
 
     // Maps to PodManager::add_pod()
     async fn add_pod(&self, request: CreatePodRequest) -> Result<PodResponse, String> {
         info!("Adding pod: {}", request.name);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        let (pod_address, _pod_data) = podman.add_pod(&request.name).await
-            .map_err(|e| format!("Failed to add pod: {}", e))?;
+            // Use the PodManager
+            let (pod_address, _pod_data) = podman.add_pod(&request.name).await
+                .map_err(|e| format!("Failed to add pod: {}", e))?;
 
-        let key_store_file = podman.data_store.get_keystore_path();
-        let mut file = std::fs::File::create(key_store_file).unwrap();
-        let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file).unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(pod_address)
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(pod_address) => {
+                info!("Added pod {} with address {}", &request.name, &pod_address);
+                Ok(PodResponse {
+                    address: pod_address,
+                    name: request.name,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+            Err(e) => {
+                warn!("Failed to add pod {}: {}", &request.name, e);
+                Err(e)
+            }
         }
-
-        info!("Added pod {} with address {}", &request.name, &pod_address);
-
-        Ok(PodResponse {
-            address: pod_address,
-            name: request.name,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        })
     }
 
     // Maps to PodManager::upload_pod()
     async fn upload_pod(&self, request: UploadPodRequest) -> Result<UploadPodResponse, String> {
         info!("Uploading pod {}", &request.address);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        podman.upload_pod(&request.address).await
-            .map_err(|e| format!("Failed to upload pod {}: {}", &request.address, e))?;
+            // Use the PodManager
+            podman.upload_pod(&request.address).await
+                .map_err(|e| format!("Failed to upload pod {}: {}", &request.address, e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Uploaded pod {} successfully", &request.address);
+                Ok(UploadPodResponse {
+                    address: request.address.clone(),
+                    message: format!("Uploaded pod {} successfully", request.address),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+            Err(e) => {
+                warn!("Failed to upload pod {}: {}", &request.address, e);
+                Err(e)
+            }
         }
-
-        info!("Uploaded pod {} successfully", &request.address);
-
-        Ok(UploadPodResponse {
-            address: request.address.clone(),
-            message: format!("Uploaded pod {} successfully", request.address),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        })
     }
 
     // Maps to PodManager::upload_all()
     async fn upload_all(&self) -> Result<UploadResponse, String> {
         info!("Uploading all pods");
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        podman.upload_all().await
-            .map_err(|e| format!("Failed to upload all pods: {}", e))?;
+            // Use the PodManager
+            podman.upload_all().await
+                .map_err(|e| format!("Failed to upload all pods: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("All pods uploaded successfully");
+                Ok(UploadResponse {
+                    message: "All pods uploaded successfully".to_string(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+            Err(e) => {
+                warn!("Failed to upload all pods: {}", e);
+                Err(e)
+            }
         }
-
-        info!("All pods uploaded successfully");
-
-        Ok(UploadResponse {
-            message: "All pods uploaded successfully".to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        })
     }
 
     // Maps to PodManager::get_subject_data()
     async fn get_subject_data(&self, address: &str) -> Result<Value, String> {
         info!("Getting subject data for: {}", address);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        let subject_data = podman.get_subject_data(address).await
-            .map_err(|e| format!("Failed to get subject data: {}", e))?;
+            // Use the PodManager
+            let subject_data = podman.get_subject_data(address).await
+                .map_err(|e| format!("Failed to get subject data: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            // Parse the subject data string as JSON
+            serde_json::from_str(&subject_data)
+                .map_err(|e| format!("Failed to parse subject data as JSON: {}", e))
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(data) => {
+                info!("Subject data retrieved successfully for {}", address);
+                Ok(data)
+            }
+            Err(e) => {
+                warn!("Failed to get subject data for {}: {}", address, e);
+                Err(e)
+            }
         }
-
-        info!("Subject data retrieved successfully for {}", address);
-
-        // Parse the subject data string as JSON
-        serde_json::from_str(&subject_data)
-            .map_err(|e| format!("Failed to parse subject data as JSON: {}", e))
     }
 
     // Maps to PodManager::put_subject_data()
     async fn put_subject_data(&self, pod_address: &str, subject: &str, data: Value) -> Result<Value, String> {
         info!("Putting subject data for {} into pod {}", subject, pod_address);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Convert the JSON data to string for PodManager
-        let data_string = serde_json::to_string(&data)
-            .map_err(|e| format!("Failed to serialize data: {}", e))?;
+            // Convert the JSON data to string for PodManager
+            let data_string = serde_json::to_string(&data)
+                .map_err(|e| format!("Failed to serialize data: {}", e))?;
 
-        // Use the PodManager
-        podman.put_subject_data(pod_address, subject, &data_string).await
-            .map_err(|e| format!("Failed to put subject data: {}", e))?;
+            // Use the PodManager
+            podman.put_subject_data(pod_address, subject, &data_string).await
+                .map_err(|e| format!("Failed to put subject data: {}", e))?;
 
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file).unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
 
-        let key_store_file = podman.data_store.get_keystore_path();
-        let mut file = std::fs::File::create(key_store_file).unwrap();
-        let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
-        
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Subject data updated successfully for {} in pod {}", subject, pod_address);
+                Ok(data)
+            }
+            Err(e) => {
+                warn!("Failed to put subject data for {} in pod {}: {}", subject, pod_address, e);
+                Err(e)
+            }
         }
-
-        info!("Subject data updated successfully for {} in pod {}", subject, pod_address);
-
-        Ok(data)
     }
 
     // Maps to PodManager::add_pod_ref()
     async fn add_pod_ref(&self, id: &str, request: PodRefRequest) -> Result<(), String> {
         info!("Adding pod reference for {}: {}", id, request.pod_ref);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        podman.add_pod_ref(id, &request.pod_ref).await
-            .map_err(|e| format!("Failed to add pod reference: {}", e))?;
+            // Use the PodManager
+            podman.add_pod_ref(id, &request.pod_ref).await
+                .map_err(|e| format!("Failed to add pod reference: {}", e))?;
 
-        let key_store_file = podman.data_store.get_keystore_path();
-        let mut file = std::fs::File::create(key_store_file).unwrap();
-        let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
-        
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file).unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Pod reference added successfully for {}: {}", id, request.pod_ref);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("Failed to add pod reference for {}: {}", id, e);
+                Err(e)
+            }
         }
-
-        info!("Pod reference added successfully for {}: {}", id, request.pod_ref);
-
-        Ok(())
     }
 
     // Maps to PodManager::remove_pod_ref()
     async fn remove_pod_ref(&self, id: &str, pod_ref: &str) -> Result<(), String> {
         info!("Removing pod reference for {}: {}", id, pod_ref);
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        podman.remove_pod_ref(id, pod_ref).await
-            .map_err(|e| format!("Failed to remove pod reference: {}", e))?;
+            // Use the PodManager
+            podman.remove_pod_ref(id, pod_ref).await
+                .map_err(|e| format!("Failed to remove pod reference: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Pod reference removed successfully for {}: {}", id, pod_ref);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("Failed to remove pod reference for {}: {}", id, e);
+                Err(e)
+            }
         }
-
-        info!("Pod reference removed successfully for {}: {}", id, pod_ref);
-
-        Ok(())
     }
 
     // Maps to PodManager::search()
     async fn search(&self, query: Value) -> Result<Value, String> {
         info!("Searching for: {}", query.to_string());
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let mut podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager
-        let results = podman.search(query.clone()).await
-            .map_err(|e| format!("Failed to search: {}", e))?;
+            // Use the PodManager
+            let results = podman.search(query.clone()).await
+                .map_err(|e| format!("Failed to search: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(results)
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(results) => {
+                info!("Search completed for: {}", query);
+                Ok(results)
+            }
+            Err(e) => {
+                warn!("Search failed for {}: {}", query, e);
+                Err(e)
+            }
         }
-
-        info!("Search completed for: {}", query);
-
-        Ok(results)
     }
 
     // Maps to PodManager::list_my_pods()
     async fn list_my_pods(&self) -> Result<Value, String> {
         info!("Listing my pods");
 
-        // Extract all data we need and drop all locks before any await
-        let (client, wallet, mut data_store, mut keystore, mut graph) = {
-            let client = self.client.lock().unwrap()
-                .take()
-                .ok_or("Client not initialized")?;
-            let wallet = self.wallet.lock().unwrap()
-                .take()
-                .ok_or("Wallet not initialized")?;
-            let data_store = self.data_store.lock().unwrap()
-                .take()
-                .ok_or("DataStore not initialized")?;
-            let keystore = self.keystore.lock().unwrap()
-                .take()
-                .ok_or("KeyStore not initialized")?;
-            let graph = self.graph.lock().unwrap()
-                .take()
-                .ok_or("Graph not initialized")?;
-            (client, wallet, data_store, keystore, graph)
-        };
-        // All MutexGuards are dropped here
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
 
-        // Now we can safely use async operations
-        let podman = PodManager::new(
-            client.clone(),
-            &wallet,
-            &mut data_store,
-            &mut keystore,
-            &mut graph
-        ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        // Execute operation and capture result
+        let result = async {
+            let podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
-        // Use the PodManager to list pods
-        let results = podman.list_my_pods()
-            .map_err(|e| format!("Failed to list pods: {}", e))?;
+            // Use the PodManager to list pods
+            let results = podman.list_my_pods()
+                .map_err(|e| format!("Failed to list pods: {}", e))?;
 
-        // Put the components back
-        {
-            *self.client.lock().unwrap() = Some(client);
-            *self.wallet.lock().unwrap() = Some(wallet);
-            *self.data_store.lock().unwrap() = Some(data_store);
-            *self.keystore.lock().unwrap() = Some(keystore);
-            *self.graph.lock().unwrap() = Some(graph);
+            Ok(results)
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(results) => {
+                info!("Listed pods successfully");
+                Ok(results)
+            }
+            Err(e) => {
+                warn!("Failed to list pods: {}", e);
+                Err(e)
+            }
         }
-
-        info!("Listed pods successfully");
-
-        Ok(results)
     }
 
 
