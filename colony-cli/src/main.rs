@@ -378,6 +378,118 @@ fn print_json_pretty(value: &Value) {
     }
 }
 
+fn print_search_results_table(value: &Value) {
+    // Check if this is a search response with SPARQL results
+    let bindings_array = if let Some(sparql_results) = value.get("sparql_results") {
+        // New format: sparql_results.results.bindings
+        if let Some(results) = sparql_results.get("results") {
+            if let Some(bindings) = results.get("bindings") {
+                bindings.as_array()
+            } else { None }
+        } else { None }
+    } else if let Some(results) = value.get("results") {
+        // Direct format: results.bindings
+        if let Some(bindings) = results.get("bindings") {
+            bindings.as_array()
+        } else { None }
+    } else { None };
+
+    if let Some(bindings_array) = bindings_array {
+        if bindings_array.is_empty() {
+            println!("{}", "No results found.".yellow());
+            return;
+        }
+
+        // Group bindings by subject to collect name and description for each subject
+        let mut subjects = std::collections::HashMap::new();
+
+        for binding in bindings_array {
+            // Extract subject address
+            let subject_address = if let Some(subject_obj) = binding.get("subject") {
+                if let Some(subject_value) = subject_obj.get("value") {
+                    if let Some(subject_str) = subject_value.as_str() {
+                        // Extract the address part from ant:// URIs
+                        if subject_str.starts_with("ant://") {
+                            subject_str.strip_prefix("ant://").unwrap_or(subject_str).to_string()
+                        } else {
+                            subject_str.to_string()
+                        }
+                    } else { continue; }
+                } else { continue; }
+            } else { continue; };
+
+            // Get or create subject entry
+            let subject_entry = subjects.entry(subject_address.clone()).or_insert_with(|| {
+                (String::new(), String::new(), subject_address)
+            });
+
+            // Extract predicate and object
+            if let Some(predicate_obj) = binding.get("predicate") {
+                if let Some(predicate_value) = predicate_obj.get("value") {
+                    if let Some(predicate_str) = predicate_value.as_str() {
+                        if let Some(object_obj) = binding.get("object") {
+                            if let Some(object_value) = object_obj.get("value") {
+                                if let Some(object_str) = object_value.as_str() {
+                                    match predicate_str {
+                                        "http://schema.org/name" => {
+                                            subject_entry.0 = object_str.to_string();
+                                        }
+                                        "ant://colonylib/vocabulary/0.1/predicate#name" => {
+                                            subject_entry.0 = object_str.to_string();
+                                        }
+                                        "http://schema.org/description" => {
+                                            subject_entry.1 = object_str.to_string();
+                                        }
+                                        "ant://colonylib/vocabulary/0.1/predicate#addr_type" => {
+                                            match object_str {
+                                                "ant://colonylib/vocabulary/0.1/object#pod" => {
+                                                    subject_entry.1 = "Pod".to_string();
+                                                }
+                                                "ant://colonylib/vocabulary/0.1/object#pod_ref" => {
+                                                    subject_entry.1 = "Pod Reference".to_string();
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if subjects.is_empty() {
+            println!("{}", "No results found.".yellow());
+            return;
+        }
+
+        // Print table header
+        println!("{}", format!("{:<30} {:<50} {:<96}", "Name", "Description", "Address").cyan().bold());
+        println!("{}", "─".repeat(178).cyan());
+
+        // Print each subject
+        for (name, description, address) in subjects.values() {
+            // Truncate long values for table display
+            let name_display = if name.len() > 28 { format!("{}...", &name[..25]) } else { name.clone() };
+            let desc_display = if description.len() > 48 { format!("{}...", &description[..45]) } else { description.clone() };
+            let addr_display = if address.len() > 96 { format!("{}...", &address[..93]) } else { address.clone() };
+
+            println!("{:<30} {:<50} {:<96}",
+                name_display.green(),
+                desc_display.white(),
+                addr_display.blue()
+            );
+        }
+        return;
+    }
+
+    // Fallback to pretty JSON if not SPARQL format
+    print_json_pretty(value);
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony-cli")
@@ -754,7 +866,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Text search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_json_pretty(&result);
+                print_search_results_table(&result);
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -789,7 +901,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Type search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_json_pretty(&result);
+                print_search_results_table(&result);
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -824,7 +936,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Predicate search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_json_pretty(&result);
+                print_search_results_table(&result);
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -847,7 +959,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Subject search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_json_pretty(&result);
+                print_search_results_table(&result);
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
