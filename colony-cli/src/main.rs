@@ -695,6 +695,12 @@ async fn main() -> anyhow::Result<()> {
                                 .value_name("QUERY")
                                 .help("SPARQL query to execute")
                                 .required(true),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .help("Display raw JSON output instead of formatted table")
+                                .action(clap::ArgAction::SetTrue),
                         ),
                 )
                 .subcommand(
@@ -711,6 +717,12 @@ async fn main() -> anyhow::Result<()> {
                                 .long("limit")
                                 .value_name("LIMIT")
                                 .help("Maximum number of results (default: 50)"),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .help("Display raw JSON output instead of formatted table")
+                                .action(clap::ArgAction::SetTrue),
                         ),
                 )
                 .subcommand(
@@ -727,6 +739,12 @@ async fn main() -> anyhow::Result<()> {
                                 .long("limit")
                                 .value_name("LIMIT")
                                 .help("Maximum number of results (default: 50)"),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .help("Display raw JSON output instead of formatted table")
+                                .action(clap::ArgAction::SetTrue),
                         ),
                 )
                 .subcommand(
@@ -743,6 +761,12 @@ async fn main() -> anyhow::Result<()> {
                                 .long("limit")
                                 .value_name("LIMIT")
                                 .help("Maximum number of results (default: 50)"),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .help("Display raw JSON output instead of formatted table")
+                                .action(clap::ArgAction::SetTrue),
                         ),
                 )
                 .subcommand(
@@ -753,6 +777,12 @@ async fn main() -> anyhow::Result<()> {
                                 .value_name("SUBJECT")
                                 .help("Subject to search for")
                                 .required(true),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .help("Display raw JSON output instead of formatted table")
+                                .action(clap::ArgAction::SetTrue),
                         ),
                 ),
         )
@@ -957,6 +987,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
     match matches.subcommand() {
         Some(("sparql", sub_matches)) => {
             let query = sub_matches.get_one::<String>("query").unwrap();
+            let json = sub_matches.get_flag("json");
             println!("{} {}", "🔍 Executing SPARQL query:".cyan(), query.yellow());
 
             let search_payload = json!({
@@ -977,7 +1008,11 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "SPARQL search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_json_pretty(&result);
+                if json {
+                    print_json_pretty(&result);
+                } else {
+                    print_search_results_table(&result);
+                }
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -986,6 +1021,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
         }
         Some(("text", sub_matches)) => {
             let query = sub_matches.get_one::<String>("query").unwrap();
+            let json = sub_matches.get_flag("json");
             let limit: u32 = sub_matches
                 .get_one::<String>("limit")
                 .and_then(|l| l.parse().ok())
@@ -1012,7 +1048,11 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Text search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_search_results_table(&result);
+                if json {
+                    print_json_pretty(&result);
+                } else {
+                    print_search_results_table(&result);
+                }
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -1021,6 +1061,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
         }
         Some(("type", sub_matches)) => {
             let type_name = sub_matches.get_one::<String>("type").unwrap();
+            let json = sub_matches.get_flag("json");
             let limit: u32 = sub_matches
                 .get_one::<String>("limit")
                 .and_then(|l| l.parse().ok())
@@ -1047,7 +1088,11 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Type search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_search_results_table(&result);
+                if json {
+                    print_json_pretty(&result);
+                } else {
+                    print_search_results_table(&result);
+                }
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -1056,6 +1101,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
         }
         Some(("predicate", sub_matches)) => {
             let predicate = sub_matches.get_one::<String>("predicate").unwrap();
+            let json = sub_matches.get_flag("json");
             let limit: u32 = sub_matches
                 .get_one::<String>("limit")
                 .and_then(|l| l.parse().ok())
@@ -1082,7 +1128,11 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Predicate search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_search_results_table(&result);
+                if json {
+                    print_json_pretty(&result);
+                } else {
+                    print_search_results_table(&result);
+                }
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
@@ -1091,6 +1141,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
         }
         Some(("subject", sub_matches)) => {
             let subject = sub_matches.get_one::<String>("subject").unwrap();
+            let json = sub_matches.get_flag("json");
             println!("{} {}", "🔍 Searching by subject:".cyan(), subject.yellow());
 
             // Use asynchronous job-based search endpoint (public)
@@ -1105,7 +1156,11 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Subject search").await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
-                print_search_results_table(&result);
+                if json {
+                    print_json_pretty(&result);
+                } else {
+                    print_search_results_table(&result);
+                }
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to start search:".red(), error_text);
