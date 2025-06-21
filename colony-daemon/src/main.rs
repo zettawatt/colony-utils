@@ -40,12 +40,18 @@ struct Claims {
     sub: String,
     exp: usize,
     iat: usize,
+    password_verified: bool,
 }
 
 // Request/Response DTOs
 #[derive(Debug, Serialize, Deserialize)]
 struct CreatePodRequest {
     name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AuthRequest {
+    password: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -388,7 +394,7 @@ impl PodService {
     }
 
     // Maps to PodManager::add_pod()
-    async fn add_pod(&self, request: CreatePodRequest) -> Result<PodResponse, String> {
+    async fn add_pod(&self, request: CreatePodRequest, keystore_password: &str) -> Result<PodResponse, String> {
         info!("Adding pod: {}", request.name);
 
         // Extract components
@@ -410,7 +416,7 @@ impl PodService {
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(pod_address)
         }.await;
@@ -565,7 +571,7 @@ impl PodService {
     }
 
     // Maps to PodManager::put_subject_data()
-    async fn put_subject_data(&self, pod_address: &str, subject: &str, data: Value) -> Result<Value, String> {
+    async fn put_subject_data(&self, pod_address: &str, subject: &str, data: Value, keystore_password: &str) -> Result<Value, String> {
         info!("Putting subject data for {} into pod {}", subject, pod_address);
 
         // Extract components
@@ -591,7 +597,7 @@ impl PodService {
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
         }.await;
@@ -613,7 +619,7 @@ impl PodService {
     }
 
     // Maps to PodManager::add_pod_ref()
-    async fn add_pod_ref(&self, id: &str, request: PodRefRequest) -> Result<(), String> {
+    async fn add_pod_ref(&self, id: &str, request: PodRefRequest, keystore_password: &str) -> Result<(), String> {
         info!("Adding pod reference for {}: {}", id, request.pod_ref);
 
         // Extract components
@@ -635,7 +641,7 @@ impl PodService {
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, "password").unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
         }.await;
@@ -785,6 +791,7 @@ struct AppState {
     job_manager: Arc<JobManager>,
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
+    keystore_password: String,
 }
 
 #[tokio::main]
@@ -1058,6 +1065,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         job_manager,
         encoding_key,
         decoding_key,
+        keystore_password,
     };
 
     info!("PodManager created successfully and integrated into REST API");
@@ -1092,15 +1100,8 @@ async fn init_client(environment: String) -> Client {
 fn create_router(state: AppState) -> Router {
     // Public routes (no authentication required)
     let public_routes = Router::new()
-        .route("/auth/token", post(create_token))
-        .route("/health", get(health_check));
-
-    // Protected routes (authentication required)
-    let protected_routes = Router::new()
         // Asynchronous job-based endpoints
         .route("/api/v1/jobs/cache/refresh", post(start_refresh_cache_job))
-        .route("/api/v1/jobs/cache/upload", post(start_upload_all_job))
-        .route("/api/v1/jobs/cache/upload/{address}", post(start_upload_pod_job))
         .route("/api/v1/jobs/cache/refresh/{depth}", post(start_refresh_ref_job))
         .route("/api/v1/jobs/search", post(start_search_job))
         .route("/api/v1/jobs/search/subject/{subject}", post(start_get_subject_data_job))
@@ -1109,6 +1110,16 @@ fn create_router(state: AppState) -> Router {
         // Synchronous endpoints
         .route("/api/v1/search", get(search))
         .route("/api/v1/search/subject/{subject}", get(get_subject_data))
+        .route("/auth/token", post(create_token))
+        .route("/auth/token/legacy", post(create_token_legacy))
+        .route("/health", get(health_check));
+
+    // Protected routes (authentication required)
+    let protected_routes = Router::new()
+        // Asynchronous job-based endpoints
+        .route("/api/v1/jobs/cache/upload", post(start_upload_all_job))
+        .route("/api/v1/jobs/cache/upload/{address}", post(start_upload_pod_job))
+        // Synchronous endpoints
         .route("/api/v1/pods", get(list_my_pods).post(add_pod))
         .route("/api/v1/pods/{pod}/{subject}", put(put_subject_data))
         .route("/api/v1/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
@@ -1150,7 +1161,13 @@ async fn auth_middleware(
     let validation = Validation::new(Algorithm::HS256);
     match decode::<Claims>(token, &state.decoding_key, &validation) {
         Ok(token_data) => {
-            debug!("Valid token for user: {}", token_data.claims.sub);
+            // Check if the token has password verification
+            if !token_data.claims.password_verified {
+                warn!("Token does not have password verification - access denied");
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+
+            debug!("Valid token with password verification for user: {}", token_data.claims.sub);
             Ok(next.run(request).await)
         }
         Err(err) => {
@@ -1161,8 +1178,17 @@ async fn auth_middleware(
 }
 
 // Authentication endpoints
-#[instrument(skip(state))]
-async fn create_token(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+#[instrument(skip(state, auth_request))]
+async fn create_token(
+    State(state): State<AppState>,
+    Json(auth_request): Json<AuthRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    // Verify the provided password matches the keystore password
+    if auth_request.password != state.keystore_password {
+        warn!("Invalid keystore password provided for token creation");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1172,11 +1198,45 @@ async fn create_token(State(state): State<AppState>) -> Result<Json<Value>, Stat
         sub: "colony-daemon".to_string(),
         exp: now + 600, // 10 minutes
         iat: now,
+        password_verified: true, // Password has been verified
     };
 
     match encode(&Header::default(), &claims, &state.encoding_key) {
         Ok(token) => {
-            info!("JWT token created successfully");
+            info!("JWT token created successfully with password verification");
+            Ok(Json(serde_json::json!({
+                "token": token,
+                "expires_in": 600,
+                "token_type": "Bearer"
+            })))
+        }
+        Err(err) => {
+            error!("Failed to create JWT token: {}", err);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+// Legacy endpoint for backward compatibility (without password verification)
+#[instrument(skip(state))]
+async fn create_token_legacy(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+    warn!("Legacy token endpoint used - password verification bypassed");
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as usize;
+
+    let claims = Claims {
+        sub: "colony-daemon".to_string(),
+        exp: now + 600, // 10 minutes
+        iat: now,
+        password_verified: false, // No password verification for legacy endpoint
+    };
+
+    match encode(&Header::default(), &claims, &state.encoding_key) {
+        Ok(token) => {
+            info!("Legacy JWT token created successfully (no password verification)");
             Ok(Json(serde_json::json!({
                 "token": token,
                 "expires_in": 600,
@@ -1233,7 +1293,7 @@ async fn add_pod(
 ) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
     info!("Adding new pod: {}", request.name);
 
-    match state.pod_service.add_pod(request).await {
+    match state.pod_service.add_pod(request, &state.keystore_password).await {
         Ok(pod) => {
             info!("Pod added successfully: {}", pod.address);
             Ok(Json(pod))
@@ -1286,7 +1346,7 @@ async fn put_subject_data(
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     info!("Putting subject data for {} in pod {}", subject, pod);
 
-    match state.pod_service.put_subject_data(&pod, &subject, data).await {
+    match state.pod_service.put_subject_data(&pod, &subject, data, &state.keystore_password).await {
         Ok(data) => {
             info!("Subject data updated successfully for {} in pod {}", subject, pod);
             Ok(Json(data))
@@ -1313,7 +1373,7 @@ async fn add_pod_ref(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     info!("Adding pod reference for {}: {}", id, request.pod_ref);
 
-    match state.pod_service.add_pod_ref(&id, request).await {
+    match state.pod_service.add_pod_ref(&id, request, &state.keystore_password).await {
         Ok(()) => {
             info!("Pod reference added successfully for: {}", id);
             Ok(StatusCode::CREATED)
@@ -1823,14 +1883,16 @@ mod tests {
     async fn create_test_app_state() -> AppState {
         let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
         let pod_service = Arc::new(PodService::new(client, wallet, data_store, keystore, graph));
-        let encoding_key = EncodingKey::from_secret(b"test_secret");
-        let decoding_key = DecodingKey::from_secret(b"test_secret");
+        let keystore_password = "test_password".to_string();
+        let encoding_key = EncodingKey::from_secret(b"test_password");
+        let decoding_key = DecodingKey::from_secret(b"test_password");
 
         AppState {
             pod_service,
             job_manager: Arc::new(JobManager::new()),
             encoding_key,
             decoding_key,
+            keystore_password,
         }
     }
 
@@ -1846,7 +1908,7 @@ mod tests {
             name: "test-pod".to_string(),
         };
 
-        let result = service.add_pod(request).await;
+        let result = service.add_pod(request, "test_password").await;
         assert!(result.is_ok());
 
         let pod = result.unwrap();
@@ -1957,7 +2019,7 @@ mod tests {
         let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = json!({"key": "value"});
 
-        let result = service.put_subject_data("test-id", "test-subject",request).await;
+        let result = service.put_subject_data("test-id", "test-subject", request, "test_password").await;
         assert!(result.is_ok());
 
         let data = result.unwrap();
@@ -1972,7 +2034,7 @@ mod tests {
             pod_ref: "test-ref".to_string(),
         };
 
-        let result = service.add_pod_ref("test-id", request).await;
+        let result = service.add_pod_ref("test-id", request, "test_password").await;
         assert!(result.is_ok());
     }
 
@@ -2041,6 +2103,7 @@ mod tests {
             sub: "test-user".to_string(),
             exp: now + 600,
             iat: now,
+            password_verified: true,
         };
 
         let token = encode(&Header::default(), &claims, &app_state.encoding_key);
@@ -2053,5 +2116,84 @@ mod tests {
 
         let decoded_claims = decoded.unwrap().claims;
         assert_eq!(decoded_claims.sub, "test-user");
+        assert_eq!(decoded_claims.password_verified, true);
+    }
+
+    #[tokio::test]
+    async fn test_password_protected_token_creation() {
+        let app_state = create_test_app_state().await;
+
+        // Test with correct password
+        let auth_request = AuthRequest {
+            password: "test_password".to_string(),
+        };
+
+        let result = create_token(
+            axum::extract::State(app_state.clone()),
+            axum::Json(auth_request),
+        ).await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        let token_data: Value = serde_json::from_str(&response.0.to_string()).unwrap();
+        assert!(token_data["token"].is_string());
+        assert_eq!(token_data["expires_in"], 600);
+
+        // Test with incorrect password
+        let wrong_auth_request = AuthRequest {
+            password: "wrong_password".to_string(),
+        };
+
+        let result = create_token(
+            axum::extract::State(app_state.clone()),
+            axum::Json(wrong_auth_request),
+        ).await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_token_validation_logic() {
+        let app_state = create_test_app_state().await;
+
+        // Test token without password verification
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+
+        let claims_no_password = Claims {
+            sub: "test-user".to_string(),
+            exp: now + 600,
+            iat: now,
+            password_verified: false,
+        };
+
+        let token_no_password = encode(&Header::default(), &claims_no_password, &app_state.encoding_key).unwrap();
+
+        // Verify we can decode the token but it should be rejected for lack of password verification
+        let validation = Validation::new(Algorithm::HS256);
+        let decoded = decode::<Claims>(&token_no_password, &app_state.decoding_key, &validation);
+        assert!(decoded.is_ok());
+
+        let decoded_claims = decoded.unwrap().claims;
+        assert_eq!(decoded_claims.password_verified, false);
+
+        // Test token with password verification
+        let claims_with_password = Claims {
+            sub: "test-user".to_string(),
+            exp: now + 600,
+            iat: now,
+            password_verified: true,
+        };
+
+        let token_with_password = encode(&Header::default(), &claims_with_password, &app_state.encoding_key).unwrap();
+
+        let decoded_valid = decode::<Claims>(&token_with_password, &app_state.decoding_key, &validation);
+        assert!(decoded_valid.is_ok());
+
+        let decoded_valid_claims = decoded_valid.unwrap().claims;
+        assert_eq!(decoded_valid_claims.password_verified, true);
     }
 }

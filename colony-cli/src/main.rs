@@ -1,17 +1,33 @@
 use clap::{Arg, ArgMatches, Command};
 use colored::*;
+use dialoguer::Password;
+use dirs;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
-use std::time::Duration;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TokenResponse {
     token: String,
     expires_in: u64,
+    token_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AuthRequest {
+    password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredToken {
+    token: String,
+    expires_at: u64,
     token_type: String,
 }
 
@@ -107,23 +123,102 @@ impl Config {
     }
 }
 
-async fn get_jwt_token(config: &Config) -> anyhow::Result<String> {
+fn get_token_cache_path() -> anyhow::Result<PathBuf> {
+    let mut path = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    path.push(".colony-cli");
+
+    // Create directory if it doesn't exist
+    if !path.exists() {
+        fs::create_dir_all(&path)?;
+    }
+
+    path.push("token.json");
+    Ok(path)
+}
+
+fn load_cached_token() -> anyhow::Result<Option<StoredToken>> {
+    let token_path = get_token_cache_path()?;
+
+    if !token_path.exists() {
+        return Ok(None);
+    }
+
+    let token_data = fs::read_to_string(token_path)?;
+    let stored_token: StoredToken = serde_json::from_str(&token_data)?;
+
+    // Check if token is expired
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs();
+
+    if stored_token.expires_at <= now {
+        return Ok(None); // Token is expired
+    }
+
+    Ok(Some(stored_token))
+}
+
+fn save_token_to_cache(token: &str, expires_in: u64, token_type: &str) -> anyhow::Result<()> {
+    let token_path = get_token_cache_path()?;
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs();
+
+    let stored_token = StoredToken {
+        token: token.to_string(),
+        expires_at: now + expires_in,
+        token_type: token_type.to_string(),
+    };
+
+    let token_data = serde_json::to_string_pretty(&stored_token)?;
+    fs::write(token_path, token_data)?;
+
+    Ok(())
+}
+
+async fn request_new_token(config: &Config) -> anyhow::Result<String> {
+    println!("{}", "🔐 Authentication required".yellow());
+
+    let password = Password::new()
+        .with_prompt("Enter keystore password")
+        .interact()?;
+
     let client = Client::new();
     let url = format!("{}/auth/token", config.base_url());
+
+    let auth_request = AuthRequest { password };
 
     let response = client
         .post(&url)
         .header("Content-Type", "application/json")
+        .json(&auth_request)
         .send()
         .await?;
 
     if response.status().is_success() {
         let token_response: TokenResponse = response.json().await?;
+
+        // Save token to cache
+        save_token_to_cache(&token_response.token, token_response.expires_in, &token_response.token_type)?;
+
+        println!("{}", "✅ Authentication successful".green());
         Ok(token_response.token)
     } else {
         let error_text = response.text().await?;
-        anyhow::bail!("Failed to get JWT token: {}", error_text);
+        anyhow::bail!("Failed to authenticate: {}", error_text);
     }
+}
+
+async fn get_jwt_token(config: &Config) -> anyhow::Result<String> {
+    // Try to load cached token first
+    if let Ok(Some(stored_token)) = load_cached_token() {
+        return Ok(stored_token.token);
+    }
+
+    // If no valid cached token, request a new one
+    request_new_token(config).await
 }
 
 async fn wait_for_job_completion(

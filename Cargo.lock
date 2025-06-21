@@ -2008,6 +2008,8 @@ dependencies = [
  "anyhow",
  "clap",
  "colored",
+ "dialoguer",
+ "dirs",
  "indicatif",
  "reqwest",
  "serde",
