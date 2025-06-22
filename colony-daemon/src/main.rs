@@ -663,8 +663,8 @@ impl PodService {
     }
 
     // Maps to PodManager::remove_pod_ref()
-    async fn remove_pod_ref(&self, id: &str, pod_ref: &str) -> Result<(), String> {
-        info!("Removing pod reference for {}: {}", id, pod_ref);
+    async fn remove_pod_ref(&self, id: &str, request: PodRefRequest) -> Result<(), String> {
+        info!("Removing pod reference for {}: {}", id, request.pod_ref);
 
         // Extract components
         let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
@@ -680,7 +680,7 @@ impl PodService {
             ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
 
             // Use the PodManager
-            podman.remove_pod_ref(id, pod_ref).await
+            podman.remove_pod_ref(id, &request.pod_ref).await
                 .map_err(|e| format!("Failed to remove pod reference: {}", e))?;
 
             Ok(())
@@ -692,7 +692,7 @@ impl PodService {
         // Handle the result
         match result {
             Ok(()) => {
-                info!("Pod reference removed successfully for {}: {}", id, pod_ref);
+                info!("Pod reference removed successfully for {}: {}", id, request.pod_ref);
                 Ok(())
             }
             Err(e) => {
@@ -822,7 +822,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse command line arguments
     let matches = Command::new("colony-daemon")
-        .version("0.1.0")
+        .version("0.1.1")
         .about("A server hosting a REST endpoint for interacting with colonylib")
         .arg(
             Arg::new("port")
@@ -896,8 +896,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Create a new DataStore instance with the DataStore::from_paths() method
         let pods_dir = data_dir.join("pods");
         let pod_refs_dir = data_dir.join("pod_refs");
-        let downloads_dir = dirs::download_dir()
-            .ok_or("Could not determine downloads directory")?;
+        // Use the default download directory, but if not set, use the dirs::home() path joined with "Downloads"
+        // Some linux systems don't set XDG_DOWNLOAD_DIR
+        let downloads_dir = if let Some(downloads_dir) = dirs::download_dir() {
+            downloads_dir
+        } else {
+            dirs::home_dir().ok_or("Could not determine downloads directory")?.join("Downloads")
+        };
 
         DataStore::from_paths(
             data_dir.clone(),
@@ -1396,26 +1401,11 @@ async fn add_pod_ref(
 async fn remove_pod_ref(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+    Json(request): Json<PodRefRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let pod_ref = match params.get("pod_ref") {
-        Some(pod_ref) => pod_ref,
-        None => {
-            warn!("Missing pod_ref parameter for remove_pod_ref");
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "MISSING_PARAMETER".to_string(),
-                    message: "pod_ref parameter is required".to_string(),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                }),
-            ));
-        }
-    };
+    info!("Removing pod reference for {}: {}", id, request.pod_ref);
 
-    info!("Removing pod reference for {}: {}", id, pod_ref);
-
-    match state.pod_service.remove_pod_ref(&id, pod_ref).await {
+    match state.pod_service.remove_pod_ref(&id, request).await {
         Ok(()) => {
             info!("Pod reference removed successfully for: {}", id);
             Ok(StatusCode::NO_CONTENT)
@@ -2123,7 +2113,11 @@ mod tests {
     async fn test_pod_service_remove_pod_ref() {
         let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
         let service = PodService::new(client, wallet, data_store, keystore, graph);
-        let result = service.remove_pod_ref("test-id", "test-ref").await;
+        let request = PodRefRequest {
+            pod_ref: "test-ref".to_string(),
+        };
+
+        let result = service.remove_pod_ref("test-id", request).await;
 
         match &result {
             Ok(_) => {

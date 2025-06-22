@@ -2003,7 +2003,7 @@ dependencies = [
 
 [[package]]
 name = "colony-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "colony-daemon"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "autonomi",
  "axum 0.8.4",

@@ -1256,9 +1256,9 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
                 .await?;
 
             if response.status().is_success() {
-                let result: Value = response.json().await?;
+                //let result: Value = response.json().await?;
                 println!("\n{}", "✅ Reference added successfully!".green().bold());
-                print_json_pretty(&result);
+                //print_json_pretty(&result);
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to add reference:".red(), error_text);
@@ -1298,9 +1298,9 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
                 .await?;
 
             if response.status().is_success() {
-                let result: Value = response.json().await?;
+                //let result: Value = response.json().await?;
                 println!("\n{}", "✅ Reference removed successfully!".green().bold());
-                print_json_pretty(&result);
+                //print_json_pretty(&result);
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to remove reference:".red(), error_text);
