@@ -90,21 +90,23 @@ colony-daemon \
 Once the daemon is running, use the CLI to interact with it:
 
 ```bash
-# List all pods
-colony-cli pods
-
-# Create a new pod
-colony-cli add pod "my-new-pod"
-
-# Search for content
+# Search for content (public - no auth required)
 colony-cli search text "example query" --limit 10
 
-# Refresh cache
+# Refresh cache (public - no auth required)
 colony-cli refresh
 
-# Upload all pods
+# List all pods (protected - requires auth)
+colony-cli pods
+
+# Create a new pod (protected - requires auth)
+colony-cli add pod "my-new-pod"
+
+# Upload all pods (protected - requires auth)
 colony-cli upload
 ```
+
+**Note**: The CLI automatically handles JWT authentication for protected operations. You'll be prompted for your keystore password when needed.
 
 ## 📖 Detailed Usage
 
@@ -223,6 +225,7 @@ colony-cli put <pod-address> <subject> <JSON-LD data string>
 
 - `COLONYCLI_SERVER` - Default server URL
 - `COLONYCLI_PORT` - Default server port
+- `COLONY_PASSWORD` - Keystore password (avoids interactive prompts for protected operations)
 
 #### Examples
 
@@ -299,25 +302,66 @@ colony-cli search sparql '\
 The daemon exposes the following REST endpoints:
 
 **Authentication:**
-- `POST /auth/token` - Get JWT token
-- `GET /health` - Health check
+- `POST /auth/token` - Get JWT token (requires keystore password)
+- `GET /health` - Health check (public)
 
-**Asynchronous Operations:**
+**Asynchronous Operations (Public - No Auth Required):**
 - `POST /api/v1/jobs/cache/refresh` - Start cache refresh
 - `POST /api/v1/jobs/cache/refresh/{depth}` - Refresh with depth
-- `POST /api/v1/jobs/cache/upload` - Upload all pods
-- `POST /api/v1/jobs/cache/upload/{address}` - Upload specific pod
 - `POST /api/v1/jobs/search` - Start search job
 - `POST /api/v1/jobs/search/subject/{subject}` - Search by subject
 - `GET /api/v1/jobs/{job_id}` - Get job status
 - `GET /api/v1/jobs/{job_id}/result` - Get job result
 
-**Synchronous Operations:**
-- `GET /api/v1/pods` - List pods
-- `POST /api/v1/pods` - Create pod
-- `PUT /api/v1/pods/{pod}/{subject}` - Store subject data
-- `POST /api/v1/pods/{pod}/pod_ref` - Add pod reference
-- `DELETE /api/v1/pods/{pod}/pod_ref` - Remove pod reference
+**Asynchronous Operations (Protected - Auth Required):**
+- `POST /api/v1/jobs/cache/upload` - Upload all pods 🔒
+- `POST /api/v1/jobs/cache/upload/{address}` - Upload specific pod 🔒
+
+**Synchronous Operations (Protected - Auth Required):**
+- `GET /api/v1/pods` - List pods 🔒
+- `POST /api/v1/pods` - Create pod 🔒
+- `PUT /api/v1/pods/{pod}/{subject}` - Store subject data 🔒
+- `POST /api/v1/pods/{pod}/pod_ref` - Add pod reference 🔒
+- `DELETE /api/v1/pods/{pod}/pod_ref` - Remove pod reference 🔒
+
+### 🔐 Authentication & Security
+
+The colony-daemon implements a JWT-based authentication system to protect sensitive operations:
+
+#### Authentication Flow
+
+1. **Get JWT Token**: Send a POST request to `/auth/token` with your keystore password
+2. **Use Token**: Include the token in the `Authorization: Bearer <token>` header
+3. **Token Expiration**: Tokens expire after 10 minutes for security
+
+#### Example Authentication
+
+```bash
+# Get a JWT token
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"password": "your_keystore_password"}' | jq -r '.token')
+
+# Use the token for protected endpoints
+curl -X POST http://localhost:3000/api/v1/pods \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-new-pod"}'
+```
+
+#### Endpoint Security
+
+- **🔓 Public Endpoints**: No authentication required
+  - Health check, search operations, job status/results, cache refresh
+- **🔒 Protected Endpoints**: Require valid JWT token with password verification
+  - Pod creation/management, data storage, upload operations, listing pods
+
+#### Legacy Support
+
+For backward compatibility, a legacy token endpoint is available:
+- `POST /auth/token/legacy` - Creates tokens without password verification
+- Legacy tokens cannot access protected endpoints
+- Use only for testing or read-only operations
 
 ## 🔧 Development
 
@@ -334,6 +378,21 @@ cargo build
 # Build with optimizations
 cargo build --release
 ```
+
+### Testing the API
+
+The repository includes a comprehensive test script that demonstrates all API endpoints:
+
+```bash
+# Run the example script (requires daemon to be running)
+cd colony-daemon
+./scripts/example.sh
+
+# Or with custom password
+KEYSTORE_PASSWORD=your_password ./scripts/example.sh
+```
+
+The script tests both public and protected endpoints, showing proper JWT authentication flow.
 
 ### Project Structure
 
@@ -370,8 +429,16 @@ netstat -tlnp | grep :3000
 # Verify daemon is accessible
 curl http://localhost:3000/health
 
-# Get a fresh token
-curl -X POST http://localhost:3000/auth/token
+# Test authentication with correct password
+curl -X POST http://localhost:3000/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"password": "your_keystore_password"}'
+
+# Check if you're using the correct keystore password
+# The daemon will return 401 Unauthorized for incorrect passwords
+
+# For testing only, use legacy token (no password required)
+curl -X POST http://localhost:3000/auth/token/legacy
 ```
 
 **Network Issues:**
