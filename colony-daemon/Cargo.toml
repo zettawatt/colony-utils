@@ -4,7 +4,7 @@ version = "0.1.2"
 edition = "2024"
 authors = ["Chuck McClish"]
 description = "A server hosting a REST endpoint for interacting with colonylib"
-homepage = "https://github.com/zettawatt/colony-utils"
+repository = "https://github.com/zettawatt/colony-utils"
 license = "GPL-3.0-only"
 
 [dependencies]
