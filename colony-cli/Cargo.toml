@@ -4,7 +4,7 @@ version = "0.1.1"
 edition = "2024"
 authors = ["Chuck McClish"]
 description = "A colonylib CLI for interacting with the colony-daemon"
-homepage = "https://github.com/zettawatt/colony-utils"
+repository = "https://github.com/zettawatt/colony-utils"
 license = "GPL-3.0-only"
 
 [dependencies]
