@@ -102,6 +102,12 @@ colony-cli pods
 # Create a new pod (protected - requires auth)
 colony-cli add pod "my-new-pod"
 
+# Remove a pod (protected - requires auth)
+colony-cli rm pod <pod-address>
+
+# Rename a pod (protected - requires auth)
+colony-cli rename pod <pod-address> "new-name"
+
 # Upload all pods (protected - requires auth)
 colony-cli upload
 ```
@@ -210,6 +216,12 @@ colony-cli pods
 
 # Create new pod
 colony-cli add pod "my-pod-name"
+
+# Remove pod
+colony-cli rm pod <pod-address>
+
+# Rename pod
+colony-cli rename pod <pod-address> <new-name>
 
 # Add pod reference
 colony-cli add ref <pod-address> <reference>

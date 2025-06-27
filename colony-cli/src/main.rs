@@ -89,6 +89,11 @@ struct PodRefRequest {
     pod_ref: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct RenamePodRequest {
+    name: String,
+}
+
 struct Config {
     server: String,
     port: u16,
@@ -821,6 +826,16 @@ async fn main() -> anyhow::Result<()> {
             Command::new("rm")
                 .about("🗑️ Remove operations")
                 .subcommand(
+                    Command::new("pod")
+                        .about("Remove a pod")
+                        .arg(
+                            Arg::new("address")
+                                .value_name("POD_ADDRESS")
+                                .help("Pod address to remove")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
                     Command::new("ref")
                         .about("Remove a pod reference")
                         .arg(
@@ -833,6 +848,26 @@ async fn main() -> anyhow::Result<()> {
                             Arg::new("ref")
                                 .value_name("REF")
                                 .help("Reference to remove")
+                                .required(true),
+                        ),
+                ),
+        )
+        .subcommand(
+            Command::new("rename")
+                .about("✏️ Rename operations")
+                .subcommand(
+                    Command::new("pod")
+                        .about("Rename a pod")
+                        .arg(
+                            Arg::new("address")
+                                .value_name("POD_ADDRESS")
+                                .help("Pod address to rename")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("name")
+                                .value_name("NEW_NAME")
+                                .help("New name for the pod")
                                 .required(true),
                         ),
                 ),
@@ -886,6 +921,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(("rm", sub_matches)) => {
             handle_rm(&config, sub_matches).await?;
+        }
+        Some(("rename", sub_matches)) => {
+            handle_rename(&config, sub_matches).await?;
         }
         Some(("put", sub_matches)) => {
             handle_put(&config, sub_matches).await?;
@@ -1280,6 +1318,24 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
     let base_url = config.base_url();
 
     match matches.subcommand() {
+        Some(("pod", sub_matches)) => {
+            let pod_address = sub_matches.get_one::<String>("address").unwrap();
+            println!("{} {}", "🗑️ Removing pod:".cyan(), pod_address.yellow());
+
+            let response = client
+                .delete(&format!("{}/api/v1/pods/{}", base_url, pod_address))
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                println!("\n{}", "✅ Pod removed successfully!".green().bold());
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to remove pod:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
         Some(("ref", sub_matches)) => {
             let pod = sub_matches.get_one::<String>("pod").unwrap();
             let pod_ref = sub_matches.get_one::<String>("ref").unwrap();
@@ -1309,6 +1365,46 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
         }
         _ => {
             println!("{}", "❌ No rm subcommand specified. Use --help for usage information.".red());
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_rename(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
+    let token = get_jwt_token(config).await?;
+    let client = Client::new();
+    let base_url = config.base_url();
+
+    match matches.subcommand() {
+        Some(("pod", sub_matches)) => {
+            let pod_address = sub_matches.get_one::<String>("address").unwrap();
+            let new_name = sub_matches.get_one::<String>("name").unwrap();
+            println!("{} {} to {}", "✏️ Renaming pod".cyan(), pod_address.yellow(), new_name.yellow());
+
+            let rename_request = RenamePodRequest {
+                name: new_name.clone(),
+            };
+
+            let response = client
+                .post(&format!("{}/api/v1/pods/{}", base_url, pod_address))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .json(&rename_request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                println!("\n{}", "✅ Pod renamed successfully!".green().bold());
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to rename pod:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            println!("{}", "❌ No rename subcommand specified. Use --help for usage information.".red());
             std::process::exit(1);
         }
     }
