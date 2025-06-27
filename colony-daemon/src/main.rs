@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
     response::Json,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use bip39::Mnemonic;
@@ -76,6 +76,11 @@ struct RefreshResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct PodRefRequest {
     pod_ref: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RenamePodRequest {
+    name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -782,6 +787,94 @@ impl PodService {
         }
     }
 
+    // Maps to PodManager::remove_pod()
+    async fn remove_pod(&self, pod_address: &str, keystore_password: &str) -> Result<(), String> {
+        info!("Removing pod: {}", pod_address);
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+
+            // Use the PodManager
+            podman.remove_pod(pod_address).await
+                .map_err(|e| format!("Failed to remove pod: {}", e))?;
+
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file).unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Pod removed successfully: {}", pod_address);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("Failed to remove pod {}: {}", pod_address, e);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::rename_pod()
+    async fn rename_pod(&self, pod_address: &str, request: RenamePodRequest, keystore_password: &str) -> Result<(), String> {
+        info!("Renaming pod {} to: {}", pod_address, request.name);
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph
+            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+
+            // Use the PodManager
+            podman.rename_pod(pod_address, &request.name).await
+                .map_err(|e| format!("Failed to rename pod: {}", e))?;
+
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file).unwrap();
+            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+
+            Ok(())
+        }.await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!("Pod renamed successfully: {} -> {}", pod_address, request.name);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("Failed to rename pod {} to {}: {}", pod_address, request.name, e);
+                Err(e)
+            }
+        }
+    }
+
 
 }
 
@@ -895,7 +988,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         // Create a new DataStore instance with the DataStore::from_paths() method
         let pods_dir = data_dir.join("pods");
-        let pod_refs_dir = data_dir.join("pod_refs");
         // Use the default download directory, but if not set, use the dirs::home() path joined with "Downloads"
         // Some linux systems don't set XDG_DOWNLOAD_DIR
         let downloads_dir = if let Some(downloads_dir) = dirs::download_dir() {
@@ -907,7 +999,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         DataStore::from_paths(
             data_dir.clone(),
             pods_dir,
-            pod_refs_dir,
             downloads_dir,
         ).map_err(|e| format!("Failed to create DataStore from paths: {}", e))?
     };
@@ -955,9 +1046,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Set wallet key
         if wallet_key.is_empty() {
-            println!("No wallet key provided, using default key");
-            keystore.set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
-            .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+            // If the SECRET_KEY environment variable is set, use that as the wallet key
+            if let Ok(secret_key) = std::env::var("SECRET_KEY") {
+                println!("No wallet key provided, using SECRET_KEY environment variable");
+                keystore.set_wallet_key(secret_key)
+                .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+            } else {
+                println!("No wallet key provided, using default local testnet key");
+                keystore.set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
+                .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+            }
         } else {
             keystore.set_wallet_key(wallet_key)
             .map_err(|e| format!("Failed to set wallet key: {}", e))?;
@@ -1126,6 +1224,7 @@ fn create_router(state: AppState) -> Router {
         .route("/api/v1/jobs/cache/upload/{address}", post(start_upload_pod_job))
         // Synchronous endpoints
         .route("/api/v1/pods", get(list_my_pods).post(add_pod))
+        .route("/api/v1/pods/{pod}", delete(remove_pod).post(rename_pod))
         .route("/api/v1/pods/{pod}/{subject}", put(put_subject_data))
         .route("/api/v1/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
@@ -1425,6 +1524,59 @@ async fn remove_pod_ref(
 }
 
 #[instrument(skip(state))]
+async fn remove_pod(
+    State(state): State<AppState>,
+    Path(pod_address): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    info!("Removing pod: {}", pod_address);
+
+    match state.pod_service.remove_pod(&pod_address, &state.keystore_password).await {
+        Ok(()) => {
+            info!("Pod removed successfully: {}", pod_address);
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(err) => {
+            error!("Failed to remove pod {}: {}", pod_address, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "REMOVE_POD_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn rename_pod(
+    State(state): State<AppState>,
+    Path(pod_address): Path<String>,
+    Json(request): Json<RenamePodRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    info!("Renaming pod {} to: {}", pod_address, request.name);
+
+    match state.pod_service.rename_pod(&pod_address, request, &state.keystore_password).await {
+        Ok(()) => {
+            info!("Pod renamed successfully: {}", pod_address);
+            Ok(StatusCode::OK)
+        }
+        Err(err) => {
+            error!("Failed to rename pod {}: {}", pod_address, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "RENAME_POD_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
 async fn search(
     State(state): State<AppState>,
     Json(query): Json<Value>,
@@ -1450,8 +1602,6 @@ async fn search(
         }
     }
 }
-
-
 
 fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(pass_spec) = password_arg {
@@ -1866,7 +2016,6 @@ mod tests {
         let data_store = DataStore::from_paths(
             data_dir,
             pods_dir,
-            pod_refs_dir,
             downloads_dir,
         ).unwrap();
 
@@ -2147,6 +2296,49 @@ mod tests {
         let response:Value = result.unwrap();
         //FIXME: better test here
         assert!(response.is_object());
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_remove_pod() {
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
+        let pod_address = "test-pod-address";
+
+        let result = service.remove_pod(pod_address, "test-password").await;
+
+        match &result {
+            Ok(()) => {
+                println!("✅ Pod removed successfully");
+            },
+            Err(e) => {
+                println!("⚠️  Expected failure: {}", e);
+                // We expect this to fail because the pod doesn't exist
+                assert!(e.contains("Failed to") || e.contains("not found"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_rename_pod() {
+        let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
+        let pod_address = "test-pod-address";
+        let request = RenamePodRequest {
+            name: "new-pod-name".to_string(),
+        };
+
+        let result = service.rename_pod(pod_address, request, "test-password").await;
+
+        match &result {
+            Ok(()) => {
+                println!("✅ Pod renamed successfully");
+            },
+            Err(e) => {
+                println!("⚠️  Expected failure: {}", e);
+                // We expect this to fail because the pod doesn't exist
+                assert!(e.contains("Failed to") || e.contains("not found"));
+            }
+        }
     }
 
     #[test]

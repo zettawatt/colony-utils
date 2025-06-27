@@ -320,6 +320,8 @@ The daemon exposes the following REST endpoints:
 **Synchronous Operations (Protected - Auth Required):**
 - `GET /api/v1/pods` - List pods 🔒
 - `POST /api/v1/pods` - Create pod 🔒
+- `DELETE /api/v1/pods/{pod}` - Remove pod 🔒
+- `POST /api/v1/pods/{pod}` - Rename pod 🔒
 - `PUT /api/v1/pods/{pod}/{subject}` - Store subject data 🔒
 - `POST /api/v1/pods/{pod}/pod_ref` - Add pod reference 🔒
 - `DELETE /api/v1/pods/{pod}/pod_ref` - Remove pod reference 🔒
