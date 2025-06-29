@@ -2002,26 +2002,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "colony-cli"
-version = "0.1.1"
+name = "colony-utils"
+version = "0.2.0"
 dependencies = [
  "anyhow",
- "clap",
- "colored",
- "dialoguer",
- "dirs",
- "indicatif",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "colony-daemon"
-version = "0.1.2"
-dependencies = [
  "autonomi",
  "axum 0.8.4",
  "axum-extra",
@@ -2029,11 +2013,13 @@ dependencies = [
  "chrono",
  "clap",
  "colonylib",
+ "colored",
  "dialoguer",
  "dirs",
  "hyper",
  "indicatif",
  "jsonwebtoken",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",

@@ -1,3 +1,57 @@
-[workspace]
-resolver = "3"
-members = ["colony-cli", "colony-daemon"]
+[package]
+name = "colony-utils"
+version = "0.2.0"
+edition = "2024"
+authors = ["Chuck McClish"]
+description = "A collection of utilities for interacting with the colonylib metadata framework for the Autonomi decentralized network"
+license = "GPL-3.0-only"
+repository = "https://github.com/zettawatt/colony-utils"
+keywords = ["autonomi", "metadata", "decentralized", "cli", "daemon"]
+categories = ["command-line-utilities", "web-programming::http-server"]
+
+[[bin]]
+name = "colonyd"
+path = "src/bin/colonyd.rs"
+
+[[bin]]
+name = "colony"
+path = "src/bin/colony.rs"
+
+[dependencies]
+# Shared dependencies
+clap = "4.5.39"
+indicatif = "0.17.11"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.45.1", features = ["full"] }
+dialoguer = "0.11.0"
+dirs = "6.0.0"
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
+
+# Daemon-specific dependencies
+autonomi = "0.4.6"
+axum = "0.8.4"
+axum-extra = { version = "0.9.4", features = ["typed-header"] }
+bip39 = { version = "2.1.0", features = ["rand"] }
+chrono = { version = "0.4.38", features = ["serde"] }
+colonylib = "0.4.1"
+jsonwebtoken = "9.3.1"
+tower = "0.5.1"
+tower-http = { version = "0.6.2", features = ["trace", "cors"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+
+# CLI-specific dependencies
+reqwest = { version = "0.12", features = ["json"] }
+colored = "2.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+hyper = { version = "1.6.0", features = ["full"] }
+tempfile = "3.14.0"
+tokio-test = "0.4.4"
+tower = { version = "0.5.1", features = ["util"] }
+
+[profile.dev]
+opt-level = 0
+incremental = true

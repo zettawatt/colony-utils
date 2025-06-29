@@ -4,9 +4,9 @@ A collection of utilities for interacting with the [colonylib](https://github.co
 
 ## 📦 Components
 
-This repository contains two main components that work together to provide a complete solution for managing pods and metadata on the Autonomi network:
+This repository contains a single Rust crate called `colony-utils` that provides two binary executables for managing pods and metadata on the Autonomi network:
 
-### 🚀 [colony-daemon](colony-daemon) - REST API Server
+### 🚀 `colonyd` - REST API Server
 A high-performance server that implements the colonylib public APIs as REST endpoints.
 
 **Key Features:**
@@ -17,8 +17,8 @@ A high-performance server that implements the colonylib public APIs as REST endp
 - 🗄️ Configurable data storage and keystore management
 - 🌍 Multi-network support (local, alpha, main)
 
-### 💻 [colony-cli](colony-cli) - Command Line Interface
-A user-friendly CLI tool for interacting with the colony-daemon.
+### 💻 `colony` - Command Line Interface
+A user-friendly CLI tool for interacting with the colonyd daemon.
 
 **Key Features:**
 - 🎨 Colorful and intuitive interface with sub-command help
@@ -41,25 +41,35 @@ A user-friendly CLI tool for interacting with the colony-daemon.
 
 There are 3 options: directly install binaries (linux only), install from crates.io, or build from source:
 
-#### From binaries (linux only)
+#### From binaries
 
 1. **Download the latest release:**
    ```bash
-   wget https://github.com/zettawatt/colony-utils/releases/download/colony-daemon_v0.1.2/colony-daemon
-   wget https://github.com/zettawatt/colony-utils/releases/download/colony-daemon_v0.1.2/colony-cli
+   # Linux
+   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colonyd-x86_64-unknown-linux-musl
+   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colony-x86_64-unknown-linux-musl
+
+   # macOS
+   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colonyd-x86_64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colony-x86_64-apple-darwin
+
+   # Windows
+   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colonyd-x86_64-pc-windows-gnu.exe
+   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colony-x86_64-pc-windows-gnu.exe
    ```
 
-2. **Move the binaries to a directory in your PATH:**
+2. **Make executable and move to PATH (Linux/macOS):**
    ```bash
-   sudo mv target/release/colony-daemon /usr/local/bin/
-   sudo mv target/release/colony-cli /usr/local/bin/
+   chmod +x colonyd-* colony-*
+   sudo mv colonyd-* /usr/local/bin/colonyd
+   sudo mv colony-* /usr/local/bin/colony
    ```
 
 #### From crates.io
 
 1. **Install using the cargo command:**
 ```bash
-cargo install colony-daemon colony-cli
+cargo install colony-utils
 ```
 
 #### From Source
@@ -77,22 +87,20 @@ cargo install colony-daemon colony-cli
 
 3. **Move the binaries to a directory in your PATH:**
    ```bash
-   sudo mv target/release/colony-daemon /usr/local/bin/
-   sudo mv target/release/colony-cli /usr/local/bin/
+   sudo mv target/release/colonyd /usr/local/bin/
+   sudo mv target/release/colony /usr/local/bin/
    ```
-
-#### From Crates.io
 
 ### Running the Daemon
 
-Start the colony-daemon server:
+Start the colonyd server:
 
 ```bash
 # Basic usage (connects to main Autonomi network on port 3000)
-colony-daemon
+colonyd
 
 # Custom configuration
-colony-daemon \
+colonyd \
   --port 8080 \
   --listen 0.0.0.0 \
   --network alpha \
@@ -106,25 +114,25 @@ Once the daemon is running, use the CLI to interact with it:
 
 ```bash
 # Search for content (public - no auth required)
-colony-cli search text "example query" --limit 10
+colony search text "example query" --limit 10
 
 # Refresh cache (public - no auth required)
-colony-cli refresh
+colony refresh
 
 # List all pods (protected - requires auth)
-colony-cli pods
+colony pods
 
 # Create a new pod (protected - requires auth)
-colony-cli add pod "my-new-pod"
+colony add pod "my-new-pod"
 
 # Remove a pod (protected - requires auth)
-colony-cli rm pod <pod-address>
+colony rm pod <pod-address>
 
 # Rename a pod (protected - requires auth)
-colony-cli rename pod <pod-address> "new-name"
+colony rename pod <pod-address> "new-name"
 
 # Upload all pods (protected - requires auth)
-colony-cli upload
+colony upload
 ```
 
 **Note**: The CLI automatically handles JWT authentication for protected operations. You'll be prompted for your keystore password when needed.
@@ -133,7 +141,7 @@ colony-cli upload
 
 ### Colony Daemon Configuration
 
-The `colony-daemon` supports various configuration options:
+The `colonyd` daemon supports various configuration options:
 
 #### Command Line Arguments
 
@@ -164,22 +172,22 @@ export RUST_LOG="colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug
 
 **Development Setup (Local Network):**
 ```bash
-colony-daemon --network local --port 3000 --listen 127.0.0.1
+colonyd --network local --port 3000 --listen 127.0.0.1
 ```
 
 **Production Setup (Main Network):**
 ```bash
-colony-daemon --port 3000 --listen 0.0.0.0
+colonyd --port 3000 --listen 0.0.0.0
 ```
 
 **Alpha Testing:**
 ```bash
-colony-daemon --network alpha
+colonyd --network alpha
 ```
 
 ### Colony CLI Usage
 
-The `colony-cli` provides a comprehensive interface to the daemon:
+The `colony` CLI provides a comprehensive interface to the daemon:
 
 #### Global Options
 
@@ -194,58 +202,58 @@ The `colony-cli` provides a comprehensive interface to the daemon:
 **Cache Operations:**
 ```bash
 # Refresh cache
-colony-cli refresh
+colony refresh
 
 # Refresh with specific depth
-colony-cli refresh --depth 2
+colony refresh --depth 2
 
 # Upload all pods
-colony-cli upload
+colony upload
 
 # Upload specific pod
-colony-cli upload <pod-address>
+colony upload <pod-address>
 ```
 
 **Search Operations:**
 ```bash
 # Text search
-colony-cli search text "search term" --limit 50
+colony search text "search term" --limit 50
 
 # SPARQL query
-colony-cli search sparql "SELECT * WHERE { GRAPH { ?s ?p ?o }}"
+colony search sparql "SELECT * WHERE { GRAPH { ?s ?p ?o }}"
 
 # Search by type - list all files of the type MediaObject
-colony-cli search type "http://schema.org/MediaObject" --limit 20
+colony search type "http://schema.org/MediaObject" --limit 20
 
 # Search by predicate - list all files by name
-colony-cli search predicate "http://schema.org/name" --limit 10
+colony search predicate "http://schema.org/name" --limit 10
 
 # Search by subject. Returns everything about an address on the network.
-colony-cli search subject "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59"
+colony search subject "c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59"
 ```
 
 **Pod Management:**
 ```bash
 # List all pods
-colony-cli pods
+colony pods
 
 # Create new pod
-colony-cli add pod "my-pod-name"
+colony add pod "my-pod-name"
 
 # Remove pod
-colony-cli rm pod <pod-address>
+colony rm pod <pod-address>
 
 # Rename pod
-colony-cli rename pod <pod-address> <new-name>
+colony rename pod <pod-address> <new-name>
 
 # Add pod reference
-colony-cli add ref <pod-address> <reference>
+colony add ref <pod-address> <reference>
 
 # Remove pod reference
-colony-cli rm ref <pod-address> <reference>
+colony rm ref <pod-address> <reference>
 
 # Store data in pod
-colony-cli put <pod-address> <subject> <JSON-LD data string>
+colony put <pod-address> <subject> <JSON-LD data string>
 ```
 
 #### Environment Variables
@@ -259,14 +267,14 @@ colony-cli put <pod-address> <subject> <JSON-LD data string>
 **Basic Workflow:**
 ```bash
 # Refresh all pods from the network to the local cache
-colony-cli refresh --depth 3
+colony refresh --depth 3
 
 # Create a new pod and give it a name
-colony-cli add pod "music" # returns the pod address e.g. 8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e
+colony add pod "music" # returns the pod address e.g. 8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e
 
 # Write metadata in JSON-LD format using [schema.org vocabulary](https://schema.org/) about a
 # particular subject (i.e. a file on the network)
-colony-cli put 8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59 '{\
+colony put 8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59 '{\
         "@context": {"schema": "http://schema.org/"},\
         "@type": "schema:MediaObject",\
         "@id": "ant://c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",\
@@ -279,13 +287,13 @@ colony-cli put 8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb
 # about any subject you want, regardless of whether you uploaded the data
 
 # Then upload all pods to the Autonomi network
-colony-cli upload
+colony upload
 
 # Now we can search for the data we just uploaded, either by a simple text query
-colony-cli search text "beg blag and steal" --limit 5
+colony search text "beg blag and steal" --limit 5
 
 # Or by raw SPARQL query for more complex queries
-colony-cli search sparql '\
+colony search sparql '\
   PREFIX schema: <http://schema.org/>\
   SELECT DISTINCT ?ant WHERE { GRAPH {\
     ?ant schema:name "BegBlag.mp3" .\
@@ -298,7 +306,7 @@ colony-cli search sparql '\
 
 ```
 ┌─────────────────┐    HTTP/REST    ┌─────────────────┐
-│   colony-cli    │ ──────────────► │  colony-daemon  │
+│     colony      │ ──────────────► │     colonyd     │
 │                 │                 │                 │
 │ • CLI Interface │                 │ • REST API      │
 │ • Progress Bars │                 │ • JWT Auth      │
@@ -414,7 +422,6 @@ The repository includes a comprehensive test script that demonstrates all API en
 
 ```bash
 # Run the example script (requires daemon to be running)
-cd colony-daemon
 ./scripts/example.sh
 
 # Or with custom password
@@ -427,16 +434,14 @@ The script tests both public and protected endpoints, showing proper JWT authent
 
 ```
 colony-utils/
-├── colony-daemon/          # REST API server
-│   ├── src/
-│   │   └── main.rs         # Main daemon implementation
-│   ├── scripts/            # Testing and example scripts
-│   └── Cargo.toml          # Daemon dependencies
-├── colony-cli/             # Command line interface
-│   ├── src/
-│   │   └── main.rs         # CLI implementation
-│   └── Cargo.toml          # CLI dependencies
-├── Cargo.toml              # Workspace configuration
+├── src/
+│   └── bin/
+│       ├── colonyd.rs      # REST API server binary
+│       └── colony.rs       # CLI binary
+├── scripts/                # Testing and example scripts
+├── Cargo.toml              # Single crate configuration
+├── ASYNC_JOBS.md           # Documentation for async job system
+├── AUTHENTICATION.md       # Authentication documentation
 └── README.md               # This file
 ```
 
@@ -447,7 +452,7 @@ colony-utils/
 **Connection Refused:**
 ```bash
 # Ensure daemon is running
-ps aux | grep colony-daemon
+ps aux | grep colonyd
 
 # Check if port is available
 netstat -tlnp | grep :3000
@@ -473,7 +478,7 @@ curl -X POST http://localhost:3000/auth/token/legacy
 **Network Issues:**
 ```bash
 # Check network connectivity
-colony-daemon --network local  # Use local testnet
+colonyd --network local  # Use local testnet
 
 # Verify Ethereum wallet
 # Ensure private key is valid and has sufficient funds
@@ -485,10 +490,10 @@ Enable debug logging for troubleshooting:
 
 ```bash
 # Daemon with debug logging
-RUST_LOG=debug colony-daemon
+RUST_LOG=debug colonyd
 
 # Specific module logging
-RUST_LOG=colony_daemon=debug,colonylib=info colony-daemon
+RUST_LOG=colony_daemon=debug,colonylib=info colonyd
 ```
 
 ## 📄 License

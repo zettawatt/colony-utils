@@ -10,7 +10,7 @@
 #   KEYSTORE_PASSWORD=mypass ./example.sh  # Uses custom password
 #
 # Prerequisites:
-#   - colony-daemon running on localhost:3000
+#   - colonyd running on localhost:3000
 #   - jq installed for JSON parsing
 #   - Valid keystore password
 
@@ -39,7 +39,7 @@ poll_job() {
     echo "⏳ Polling job $job_id for $operation_name..."
 
     while true; do
-        response=$(curl -s -X GET "$BASE_URL/api/v1/jobs/$job_id")
+        response=$(curl -s -X GET "$BASE_URL/colony-0/jobs/$job_id")
 
         status=$(echo $response | jq -r '.job.status')
         progress=$(echo $response | jq -r '.job.progress // 0')
@@ -58,7 +58,7 @@ poll_job() {
         echo "✅ $operation_name completed successfully!"
         # Get the result (also public endpoint)
         echo "📋 Getting result for $operation_name..."
-        curl -s -X GET "$BASE_URL/api/v1/jobs/$job_id/result" | jq
+        curl -s -X GET "$BASE_URL/colony-0/jobs/$job_id/result" | jq
     else
         echo "❌ $operation_name failed!"
         echo $response | jq
@@ -69,7 +69,7 @@ poll_job() {
 echo "📝 Getting JWT token..."
 echo "🔐 Using keystore password: ${KEYSTORE_PASSWORD:0:3}***"
 
-TOKEN_RESPONSE=$(curl -s -X POST $BASE_URL/auth/token \
+TOKEN_RESPONSE=$(curl -s -X POST $BASE_URL/colony-auth/token \
   -H "Content-Type: application/json" \
   -d "{\"password\": \"$KEYSTORE_PASSWORD\"}")
 
@@ -90,11 +90,11 @@ fi
 
 # Health check (PUBLIC endpoint - no auth required)
 echo -e "\n🏥 Testing health check (public endpoint)..."
-curl -s -X GET $BASE_URL/health | jq
+curl -s -X GET $BASE_URL/colony-health | jq
 
 # Test async cache refresh (PUBLIC endpoint - no auth required)
 echo -e "\n🔄 Testing async cache refresh (public endpoint)..."
-cache_response=$(curl -s -X POST $BASE_URL/api/v1/jobs/cache/refresh)
+cache_response=$(curl -s -X POST $BASE_URL/colony-0/jobs/cache/refresh)
 echo $cache_response | jq
 cache_job_id=$(echo $cache_response | jq -r '.job_id')
 
@@ -104,7 +104,7 @@ fi
 
 # Test async refresh pod references with depth (PUBLIC endpoint - no auth required)
 echo -e "\n📋 Testing async refresh pod references (depth 2, public endpoint)..."
-refresh_response=$(curl -s -X POST $BASE_URL/api/v1/jobs/cache/refresh/2)
+refresh_response=$(curl -s -X POST $BASE_URL/colony-0/jobs/cache/refresh/2)
 echo $refresh_response | jq
 refresh_job_id=$(echo $refresh_response | jq -r '.job_id')
 
@@ -114,7 +114,7 @@ fi
 
 # Add a pod (PROTECTED endpoint - requires auth)
 echo -e "\n➕ Testing add pod (protected endpoint)..."
-POD_RESPONSE=$(curl -s -X POST $BASE_URL/api/v1/pods \
+POD_RESPONSE=$(curl -s -X POST $BASE_URL/colony-0/pods \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -127,7 +127,7 @@ POD_ADDRESS=$(echo $POD_RESPONSE | jq -r '.address')
 if [ "$POD_ADDRESS" != "null" ] && [ ! -z "$POD_ADDRESS" ]; then
     SUBJECT_ADDRESS=c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59
     echo -e "\n💾 Testing put subject data (protected endpoint)..."
-    put_response=$(curl -s -X PUT $BASE_URL/api/v1/pods/$POD_ADDRESS/c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59 \
+    put_response=$(curl -s -X PUT $BASE_URL/colony-0/pods/$POD_ADDRESS/c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59 \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{
@@ -141,7 +141,7 @@ if [ "$POD_ADDRESS" != "null" ] && [ ! -z "$POD_ADDRESS" ]; then
     echo $put_response | jq
 
     echo -e "\n📖 Testing async get subject data (public endpoint)..."
-    subject_response=$(curl -s -X POST $BASE_URL/api/v1/jobs/search/subject/$SUBJECT_ADDRESS)
+    subject_response=$(curl -s -X POST $BASE_URL/colony-0/jobs/search/subject/$SUBJECT_ADDRESS)
     echo $subject_response | jq
     subject_job_id=$(echo $subject_response | jq -r '.job_id')
 
@@ -151,7 +151,7 @@ if [ "$POD_ADDRESS" != "null" ] && [ ! -z "$POD_ADDRESS" ]; then
 
     echo -e "\n🔗 Testing add pod reference (protected endpoint)..."
     POD_REF_ADDRESS=8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910dd8e1943a700778f5f969a4261e
-    pod_ref_response=$(curl -s -X POST $BASE_URL/api/v1/pods/$POD_ADDRESS/pod_ref \
+    pod_ref_response=$(curl -s -X POST $BASE_URL/colony-0/pods/$POD_ADDRESS/pod_ref \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{
@@ -160,13 +160,13 @@ if [ "$POD_ADDRESS" != "null" ] && [ ! -z "$POD_ADDRESS" ]; then
     echo $pod_ref_response | jq
 
     # echo -e "\n🗑️ Testing remove pod reference (protected endpoint)..."
-    # curl -s -X DELETE "$BASE_URL/api/v1/pods/$POD_ADDRESS/pod_ref?pod_ref=test-reference-address" \
+    # curl -s -X DELETE "$BASE_URL/colony-0/pods/$POD_ADDRESS/pod_ref?pod_ref=test-reference-address" \
     #   -H "Authorization: Bearer $TOKEN" | jq
 fi
 
 # Test async search (PUBLIC endpoint - no auth required)
 echo -e "\n🔍 Testing async search (public endpoint)..."
-search_response=$(curl -s -X POST "$BASE_URL/api/v1/jobs/search" \
+search_response=$(curl -s -X POST "$BASE_URL/colony-0/jobs/search" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "text",
@@ -182,7 +182,7 @@ fi
 
 # Test async upload all pods (PROTECTED endpoint - requires auth)
 echo -e "\n⬆️ Testing async upload all pods (protected endpoint)..."
-upload_response=$(curl -s -X POST $BASE_URL/api/v1/jobs/cache/upload \
+upload_response=$(curl -s -X POST $BASE_URL/colony-0/jobs/cache/upload \
   -H "Authorization: Bearer $TOKEN")
 echo $upload_response | jq
 upload_job_id=$(echo $upload_response | jq -r '.job_id')
@@ -193,11 +193,11 @@ fi
 
 # Demonstrate checking job status for a non-existent job (PUBLIC endpoint - no auth required)
 echo -e "\n🔍 Testing job status for non-existent job (public endpoint)..."
-curl -s -X GET "$BASE_URL/api/v1/jobs/non-existent-job-id" | jq
+curl -s -X GET "$BASE_URL/colony-0/jobs/non-existent-job-id" | jq
 
 # Test listing pods (PROTECTED endpoint - requires auth)
 echo -e "\n📦 Testing list my pods (protected endpoint)..."
-list_response=$(curl -s -X GET "$BASE_URL/api/v1/pods" \
+list_response=$(curl -s -X GET "$BASE_URL/colony-0/pods" \
   -H "Authorization: Bearer $TOKEN")
 echo $list_response | jq
 
