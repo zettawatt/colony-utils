@@ -74,10 +74,10 @@ jobs:
           cross build --release --target x86_64-unknown-linux-musl --bin colonyd
           cross build --release --target x86_64-unknown-linux-musl --bin colony
 
-      - name: Build macOS binary
-        run: |
-          cross build --release --target x86_64-apple-darwin --bin colonyd
-          cross build --release --target x86_64-apple-darwin --bin colony
+      # - name: Build macOS binary
+      #   run: |
+      #     cross build --release --target x86_64-apple-darwin --bin colonyd
+      #     cross build --release --target x86_64-apple-darwin --bin colony
 
       - name: Build Windows binary
         run: |
@@ -93,9 +93,9 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/colonyd release-assets/colonyd-x86_64-unknown-linux-musl
           cp target/x86_64-unknown-linux-musl/release/colony release-assets/colony-x86_64-unknown-linux-musl
 
-          # macOS
-          cp target/x86_64-apple-darwin/release/colonyd release-assets/colonyd-x86_64-apple-darwin
-          cp target/x86_64-apple-darwin/release/colony release-assets/colony-x86_64-apple-darwin
+          # # macOS
+          # cp target/x86_64-apple-darwin/release/colonyd release-assets/colonyd-x86_64-apple-darwin
+          # cp target/x86_64-apple-darwin/release/colony release-assets/colony-x86_64-apple-darwin
 
           # Windows
           cp target/x86_64-pc-windows-gnu/release/colonyd.exe release-assets/colonyd-x86_64-pc-windows-gnu.exe
