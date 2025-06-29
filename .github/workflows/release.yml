@@ -74,8 +74,14 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             use_cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
+            use_cross: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
             use_cross: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -157,15 +163,23 @@ jobs:
         run: |
           mkdir -p release-assets
 
-          # Linux
+          # Linux x86_64
           cp artifacts/binaries-x86_64-unknown-linux-musl/colonyd release-assets/colonyd-x86_64-unknown-linux-musl
           cp artifacts/binaries-x86_64-unknown-linux-musl/colony release-assets/colony-x86_64-unknown-linux-musl
 
-          # macOS
+          # Linux ARM64 (Raspberry Pi, etc.)
+          cp artifacts/binaries-aarch64-unknown-linux-musl/colonyd release-assets/colonyd-aarch64-unknown-linux-musl
+          cp artifacts/binaries-aarch64-unknown-linux-musl/colony release-assets/colony-aarch64-unknown-linux-musl
+
+          # macOS x86_64 (Intel)
           cp artifacts/binaries-x86_64-apple-darwin/colonyd release-assets/colonyd-x86_64-apple-darwin
           cp artifacts/binaries-x86_64-apple-darwin/colony release-assets/colony-x86_64-apple-darwin
 
-          # Windows
+          # macOS ARM64 (Apple Silicon)
+          cp artifacts/binaries-aarch64-apple-darwin/colonyd release-assets/colonyd-aarch64-apple-darwin
+          cp artifacts/binaries-aarch64-apple-darwin/colony release-assets/colony-aarch64-apple-darwin
+
+          # Windows x86_64
           cp artifacts/binaries-x86_64-pc-windows-msvc/colonyd.exe release-assets/colonyd-x86_64-pc-windows-msvc.exe
           cp artifacts/binaries-x86_64-pc-windows-msvc/colony.exe release-assets/colony-x86_64-pc-windows-msvc.exe
 
