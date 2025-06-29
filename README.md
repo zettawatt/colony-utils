@@ -46,16 +46,16 @@ There are 3 options: directly install binaries (linux only), install from crates
 1. **Download the latest release:**
    ```bash
    # Linux
-   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colonyd-x86_64-unknown-linux-musl
-   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colony-x86_64-unknown-linux-musl
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-unknown-linux-musl
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-unknown-linux-musl
 
    # macOS
-   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colonyd-x86_64-apple-darwin
-   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colony-x86_64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-apple-darwin
 
    # Windows
-   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colonyd-x86_64-pc-windows-gnu.exe
-   wget https://github.com/zettawatt/colony-utils/releases/download/v0.1.2/colony-x86_64-pc-windows-gnu.exe
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-pc-windows-gnu.exe
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-pc-windows-gnu.exe
    ```
 
 2. **Make executable and move to PATH (Linux/macOS):**
