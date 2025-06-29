@@ -1,6 +1,6 @@
 [package]
 name = "colony-utils"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["Chuck McClish"]
 description = "A collection of utilities for interacting with the colonylib metadata framework for the Autonomi decentralized network"
@@ -42,7 +42,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # CLI-specific dependencies
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 colored = "2.0"
 anyhow = "1.0"
 
