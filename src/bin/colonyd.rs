@@ -1099,10 +1099,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    info!("Starting colony-daemon");
+    info!("Starting colonyd");
 
     // Parse command line arguments
-    let matches = Command::new("colony-daemon")
+    let matches = Command::new("colonyd")
         .version("0.2.3")
         .about("A server hosting a REST endpoint for interacting with colonylib")
         .arg(
@@ -1528,7 +1528,7 @@ async fn create_token(
         .as_secs() as usize;
 
     let claims = Claims {
-        sub: "colony-daemon".to_string(),
+        sub: "colonyd".to_string(),
         exp: now + 600, // 10 minutes
         iat: now,
         password_verified: true, // Password has been verified
