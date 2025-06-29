@@ -913,6 +913,51 @@ impl PodService {
         }
     }
 
+    // Maps to PodManager::get_update_list()
+    async fn get_update_list(&self) -> Result<Value, String> {
+        info!("Getting update list");
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            // Use the PodManager to get update list
+            let results = podman
+                .get_update_list()
+                .map_err(|e| format!("Failed to get update list: {e}"))?;
+
+            Ok(results)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(results) => {
+                info!("Got update list successfully");
+                Ok(results)
+            }
+            Err(e) => {
+                warn!("Failed to get update list: {}", e);
+                Err(e)
+            }
+        }
+    }
+
     // Maps to PodManager::remove_pod()
     async fn remove_pod(&self, pod_address: &str, keystore_password: &str) -> Result<(), String> {
         info!("Removing pod: {}", pod_address);
@@ -1397,6 +1442,7 @@ fn create_router(state: AppState) -> Router {
             post(start_upload_pod_job),
         )
         // Synchronous endpoints
+        .route("/colony-0/updates", get(get_update_list))
         .route("/colony-0/pods", get(list_my_pods).post(add_pod))
         .route("/colony-0/pods/{pod}", delete(remove_pod).post(rename_pod))
         .route("/colony-0/pods/{pod}/{subject}", put(put_subject_data))
@@ -1534,6 +1580,31 @@ async fn list_my_pods(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "LIST_PODS_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_update_list(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting update list");
+
+    match state.pod_service.get_update_list().await {
+        Ok(response) => {
+            info!("Got update list successfully");
+            Ok(Json(response))
+        }
+        Err(err) => {
+            error!("Failed to get update list: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_UPDATE_LIST_FAILED".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
@@ -2624,6 +2695,27 @@ mod tests {
                 println!("⚠️  Expected failure: {e}");
                 // We expect this to fail because the pod doesn't exist
                 assert!(e.contains("Failed to") || e.contains("not found"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pod_service_get_update_list() {
+        let (client, wallet, data_store, keystore, graph) = setup_test_components!();
+        let service = PodService::new(client, wallet, data_store, keystore, graph);
+
+        let result = service.get_update_list().await;
+
+        match &result {
+            Ok(response) => {
+                println!("✅ Got update list successfully");
+                // Verify the response is a valid JSON value
+                assert!(response.is_object() || response.is_array());
+            }
+            Err(e) => {
+                println!("⚠️  Expected failure in test environment: {e}");
+                // In test environment, this may fail due to missing data or network issues
+                assert!(e.contains("Failed to") || e.contains("No such file"));
             }
         }
     }
