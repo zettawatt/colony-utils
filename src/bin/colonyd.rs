@@ -2347,7 +2347,7 @@ mod tests {
         let client = match Client::init_local().await {
             Ok(client) => client,
             Err(e) => {
-                return Err(format!("Failed to initialize client for testing: {}", e));
+                return Err(format!("Failed to initialize client for testing: {e}"));
             }
         };
 
@@ -2355,7 +2355,7 @@ mod tests {
         let wallet = match Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key) {
             Ok(wallet) => wallet,
             Err(e) => {
-                return Err(format!("Failed to create wallet for testing: {}", e));
+                return Err(format!("Failed to create wallet for testing: {e}"));
             }
         };
 
@@ -2382,7 +2382,7 @@ mod tests {
     async fn test_pod_service_add_pod() {
         let components = create_mock_components().await;
         if let Err(e) = components {
-            println!("⚠️  Skipping test due to network unavailability: {}", e);
+            println!("⚠️  Skipping test due to network unavailability: {e}");
             return;
         }
         let (client, wallet, data_store, keystore, graph) = components.unwrap();
@@ -2400,10 +2400,10 @@ mod tests {
             Ok(pod) => {
                 println!("✅ Pod created successfully: {}", pod.name);
                 assert_eq!(pod.name, "test-pod");
-                assert!(pod.address.len() > 0);
+                assert!(!pod.address.is_empty());
             }
             Err(e) => {
-                println!("⚠️  Expected failure in test environment: {}", e);
+                println!("⚠️  Expected failure in test environment: {e}");
                 // In a test environment, we expect this to fail due to network issues
                 // The test passes if we can at least call the service method
                 assert!(e.contains("No such file or directory") || e.contains("Failed to"));
@@ -2427,7 +2427,7 @@ mod tests {
                 );
             }
             Err(e) => {
-                println!("⚠️  Expected failure in test environment: {}", e);
+                println!("⚠️  Expected failure in test environment: {e}");
                 // In test environment, this may fail due to network issues
                 assert!(e.contains("Failed to") || e.contains("No such file"));
             }
@@ -2458,7 +2458,7 @@ mod tests {
                 assert!(response.message.contains("All pods uploaded"));
             }
             Err(e) => {
-                println!("⚠️  Expected failure in test environment: {}", e);
+                println!("⚠️  Expected failure in test environment: {e}");
                 // In test environment, this may fail due to network issues
                 assert!(e.contains("Failed to") || e.contains("No such file"));
             }
@@ -2478,7 +2478,7 @@ mod tests {
                 // This would be unexpected but not necessarily wrong
             }
             Err(e) => {
-                println!("✅ Expected failure: {}", e);
+                println!("✅ Expected failure: {e}");
                 // We expect this to fail with "Subject data not found" or similar
                 assert!(e.contains("Subject data not found") || e.contains("Failed to"));
             }
@@ -2567,7 +2567,7 @@ mod tests {
                 assert_eq!(*data, request);
             }
             Err(e) => {
-                println!("⚠️  Expected failure in test environment: {}", e);
+                println!("⚠️  Expected failure in test environment: {e}");
                 // In test environment, this may fail due to network issues or missing pod
                 assert!(e.contains("Failed to") || e.contains("Pod not found"));
             }
@@ -2593,7 +2593,7 @@ mod tests {
                 println!("✅ Pod reference added successfully");
             }
             Err(e) => {
-                println!("⚠️  Expected failure: {}", e);
+                println!("⚠️  Expected failure: {e}");
                 // We expect this to fail with "Pod not found" or similar
                 assert!(e.contains("Pod not found") || e.contains("Failed to"));
             }
@@ -2615,7 +2615,7 @@ mod tests {
                 println!("✅ Pod reference removed successfully");
             }
             Err(e) => {
-                println!("⚠️  Expected failure: {}", e);
+                println!("⚠️  Expected failure: {e}");
                 // We expect this to fail because the pod/reference doesn't exist
                 assert!(e.contains("Failed to") || e.contains("not found"));
             }
@@ -2653,7 +2653,7 @@ mod tests {
                 println!("✅ Pod removed successfully");
             }
             Err(e) => {
-                println!("⚠️  Expected failure: {}", e);
+                println!("⚠️  Expected failure: {e}");
                 // We expect this to fail because the pod doesn't exist
                 assert!(e.contains("Failed to") || e.contains("not found"));
             }
@@ -2678,7 +2678,7 @@ mod tests {
                 println!("✅ Pod renamed successfully");
             }
             Err(e) => {
-                println!("⚠️  Expected failure: {}", e);
+                println!("⚠️  Expected failure: {e}");
                 // We expect this to fail because the pod doesn't exist
                 assert!(e.contains("Failed to") || e.contains("not found"));
             }
@@ -2721,7 +2721,7 @@ mod tests {
         let app_state = match create_test_app_state().await {
             Ok(state) => state,
             Err(e) => {
-                println!("⚠️  Skipping test due to network unavailability: {}", e);
+                println!("⚠️  Skipping test due to network unavailability: {e}");
                 return;
             }
         };
@@ -2748,7 +2748,7 @@ mod tests {
 
         let decoded_claims = decoded.unwrap().claims;
         assert_eq!(decoded_claims.sub, "test-user");
-        assert_eq!(decoded_claims.password_verified, true);
+        assert!(decoded_claims.password_verified);
     }
 
     #[tokio::test]
@@ -2756,7 +2756,7 @@ mod tests {
         let app_state = match create_test_app_state().await {
             Ok(state) => state,
             Err(e) => {
-                println!("⚠️  Skipping test due to network unavailability: {}", e);
+                println!("⚠️  Skipping test due to network unavailability: {e}");
                 return;
             }
         };
@@ -2798,7 +2798,7 @@ mod tests {
         let app_state = match create_test_app_state().await {
             Ok(state) => state,
             Err(e) => {
-                println!("⚠️  Skipping test due to network unavailability: {}", e);
+                println!("⚠️  Skipping test due to network unavailability: {e}");
                 return;
             }
         };
@@ -2829,7 +2829,7 @@ mod tests {
         assert!(decoded.is_ok());
 
         let decoded_claims = decoded.unwrap().claims;
-        assert_eq!(decoded_claims.password_verified, false);
+        assert!(!decoded_claims.password_verified);
 
         // Test token with password verification
         let claims_with_password = Claims {
@@ -2851,6 +2851,6 @@ mod tests {
         assert!(decoded_valid.is_ok());
 
         let decoded_valid_claims = decoded_valid.unwrap().claims;
-        assert_eq!(decoded_valid_claims.password_verified, true);
+        assert!(decoded_valid_claims.password_verified);
     }
 }
