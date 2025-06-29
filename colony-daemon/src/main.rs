@@ -1204,29 +1204,29 @@ fn create_router(state: AppState) -> Router {
     // Public routes (no authentication required)
     let public_routes = Router::new()
         // Asynchronous job-based endpoints
-        .route("/api/v1/jobs/cache/refresh", post(start_refresh_cache_job))
-        .route("/api/v1/jobs/cache/refresh/{depth}", post(start_refresh_ref_job))
-        .route("/api/v1/jobs/search", post(start_search_job))
-        .route("/api/v1/jobs/search/subject/{subject}", post(start_get_subject_data_job))
-        .route("/api/v1/jobs/{job_id}", get(get_job_status))
-        .route("/api/v1/jobs/{job_id}/result", get(get_job_result))
+        .route("/colony-0/jobs/cache/refresh", post(start_refresh_cache_job))
+        .route("/colony-0/jobs/cache/refresh/{depth}", post(start_refresh_ref_job))
+        .route("/colony-0/jobs/search", post(start_search_job))
+        .route("/colony-0/jobs/search/subject/{subject}", post(start_get_subject_data_job))
+        .route("/colony-0/jobs/{job_id}", get(get_job_status))
+        .route("/colony-0/jobs/{job_id}/result", get(get_job_result))
         // Synchronous endpoints
-        .route("/api/v1/search", get(search))
-        .route("/api/v1/search/subject/{subject}", get(get_subject_data))
-        .route("/auth/token", post(create_token))
-        .route("/auth/token/legacy", post(create_token_legacy))
-        .route("/health", get(health_check));
+        .route("/colony-0/search", get(search))
+        .route("/colony-0/search/subject/{subject}", get(get_subject_data))
+        .route("/colony-auth/token", post(create_token))
+        .route("/colony-auth/token/legacy", post(create_token_legacy))
+        .route("/colony-health", get(health_check));
 
     // Protected routes (authentication required)
     let protected_routes = Router::new()
         // Asynchronous job-based endpoints
-        .route("/api/v1/jobs/cache/upload", post(start_upload_all_job))
-        .route("/api/v1/jobs/cache/upload/{address}", post(start_upload_pod_job))
+        .route("/colony-0/jobs/cache/upload", post(start_upload_all_job))
+        .route("/colony-0/jobs/cache/upload/{address}", post(start_upload_pod_job))
         // Synchronous endpoints
-        .route("/api/v1/pods", get(list_my_pods).post(add_pod))
-        .route("/api/v1/pods/{pod}", delete(remove_pod).post(rename_pod))
-        .route("/api/v1/pods/{pod}/{subject}", put(put_subject_data))
-        .route("/api/v1/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
+        .route("/colony-0/pods", get(list_my_pods).post(add_pod))
+        .route("/colony-0/pods/{pod}", delete(remove_pod).post(rename_pod))
+        .route("/colony-0/pods/{pod}/{subject}", put(put_subject_data))
+        .route("/colony-0/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
     // Combine routes with middleware

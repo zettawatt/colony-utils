@@ -191,7 +191,7 @@ async fn request_new_token(config: &Config) -> anyhow::Result<String> {
         .interact()?;
 
     let client = Client::new();
-    let url = format!("{}/auth/token", config.base_url());
+    let url = format!("{}/colony-auth/token", config.base_url());
 
     let auth_request = AuthRequest { password };
 
@@ -247,7 +247,7 @@ async fn wait_for_job_completion(
 
     loop {
         // Check job status
-        let status_url = format!("{}/api/v1/jobs/{}", base_url, job_id);
+        let status_url = format!("{}/colony-0/jobs/{}", base_url, job_id);
         let response = client
             .get(&status_url)
             .header("Authorization", format!("Bearer {}", token))
@@ -268,7 +268,7 @@ async fn wait_for_job_completion(
                     pb.finish_with_message(format!("✅ {} completed", operation_name));
 
                     // Get the result
-                    let result_url = format!("{}/api/v1/jobs/{}/result", base_url, job_id);
+                    let result_url = format!("{}/colony-0/jobs/{}/result", base_url, job_id);
                     let result_response = client
                         .get(&result_url)
                         .header("Authorization", format!("Bearer {}", token))
@@ -322,7 +322,7 @@ async fn wait_for_job_completion_no_auth(
 
     loop {
         // Check job status (no auth required for public job endpoints)
-        let status_url = format!("{}/api/v1/jobs/{}", base_url, job_id);
+        let status_url = format!("{}/colony-0/jobs/{}", base_url, job_id);
         let response = client
             .get(&status_url)
             .send()
@@ -342,7 +342,7 @@ async fn wait_for_job_completion_no_auth(
                     pb.finish_with_message(format!("✅ {} completed", operation_name));
 
                     // Get the result (no auth required for public job endpoints)
-                    let result_url = format!("{}/api/v1/jobs/{}/result", base_url, job_id);
+                    let result_url = format!("{}/colony-0/jobs/{}/result", base_url, job_id);
                     let result_response = client
                         .get(&result_url)
                         .send()
@@ -946,12 +946,12 @@ async fn handle_refresh(config: &Config, matches: &ArgMatches) -> anyhow::Result
 
     let (url, operation_name) = if let Some(depth) = matches.get_one::<String>("depth") {
         (
-            format!("{}/api/v1/jobs/cache/refresh/{}", base_url, depth),
+            format!("{}/colony-0/jobs/cache/refresh/{}", base_url, depth),
             format!("Cache refresh with depth {}", depth),
         )
     } else {
         (
-            format!("{}/api/v1/jobs/cache/refresh", base_url),
+            format!("{}/colony-0/jobs/cache/refresh", base_url),
             "Cache refresh".to_string(),
         )
     };
@@ -985,13 +985,13 @@ async fn handle_upload(config: &Config, matches: &ArgMatches) -> anyhow::Result<
     let (url, operation_name) = if let Some(pod) = matches.get_one::<String>("pod") {
         println!("{} {}", "⬆️ Starting upload for pod:".cyan(), pod.yellow());
         (
-            format!("{}/api/v1/jobs/cache/upload/{}", base_url, pod),
+            format!("{}/colony-0/jobs/cache/upload/{}", base_url, pod),
             format!("Upload pod {}", pod),
         )
     } else {
         println!("{}", "⬆️ Starting upload all...".cyan());
         (
-            format!("{}/api/v1/jobs/cache/upload", base_url),
+            format!("{}/colony-0/jobs/cache/upload", base_url),
             "Upload all".to_string(),
         )
     };
@@ -1035,7 +1035,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/api/v1/jobs/search", base_url))
+                .post(&format!("{}/colony-0/jobs/search", base_url))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1075,7 +1075,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/api/v1/jobs/search", base_url))
+                .post(&format!("{}/colony-0/jobs/search", base_url))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1115,7 +1115,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/api/v1/jobs/search", base_url))
+                .post(&format!("{}/colony-0/jobs/search", base_url))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1155,7 +1155,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/api/v1/jobs/search", base_url))
+                .post(&format!("{}/colony-0/jobs/search", base_url))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1184,7 +1184,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/api/v1/jobs/search/subject/{}", base_url, subject))
+                .post(&format!("{}/colony-0/jobs/search/subject/{}", base_url, subject))
                 .header("Content-Type", "application/json")
                 .send()
                 .await?;
@@ -1222,7 +1222,7 @@ async fn handle_pods(config: &Config) -> anyhow::Result<()> {
     let base_url = config.base_url();
 
     let response = client
-        .get(&format!("{}/api/v1/pods", base_url))
+        .get(&format!("{}/colony-0/pods", base_url))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await?;
@@ -1255,7 +1255,7 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             };
 
             let response = client
-                .post(&format!("{}/api/v1/pods", base_url))
+                .post(&format!("{}/colony-0/pods", base_url))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&pod_request)
@@ -1286,7 +1286,7 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             };
 
             let response = client
-                .post(&format!("{}/api/v1/pods/{}/pod_ref", base_url, pod))
+                .post(&format!("{}/colony-0/pods/{}/pod_ref", base_url, pod))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&ref_request)
@@ -1323,7 +1323,7 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
             println!("{} {}", "🗑️ Removing pod:".cyan(), pod_address.yellow());
 
             let response = client
-                .delete(&format!("{}/api/v1/pods/{}", base_url, pod_address))
+                .delete(&format!("{}/colony-0/pods/{}", base_url, pod_address))
                 .header("Authorization", format!("Bearer {}", token))
                 .send()
                 .await?;
@@ -1346,7 +1346,7 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
             };
 
             let response = client
-                .delete(&format!("{}/api/v1/pods/{}/pod_ref", base_url, pod))
+                .delete(&format!("{}/colony-0/pods/{}/pod_ref", base_url, pod))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&ref_request)
@@ -1388,7 +1388,7 @@ async fn handle_rename(config: &Config, matches: &ArgMatches) -> anyhow::Result<
             };
 
             let response = client
-                .post(&format!("{}/api/v1/pods/{}", base_url, pod_address))
+                .post(&format!("{}/colony-0/pods/{}", base_url, pod_address))
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Content-Type", "application/json")
                 .json(&rename_request)
@@ -1438,7 +1438,7 @@ async fn handle_put(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
     let base_url = config.base_url();
 
     let response = client
-        .put(&format!("{}/api/v1/pods/{}/{}", base_url, pod, subject))
+        .put(&format!("{}/colony-0/pods/{}/{}", base_url, pod, subject))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .json(&data)
