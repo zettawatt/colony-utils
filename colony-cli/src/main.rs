@@ -4,7 +4,7 @@ use dialoguer::Password;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -102,7 +102,8 @@ struct Config {
 impl Config {
     fn new(matches: &ArgMatches) -> Self {
         let server = matches
-            .get_one::<String>("server").cloned()
+            .get_one::<String>("server")
+            .cloned()
             .or_else(|| env::var("COLONYCLI_SERVER").ok())
             .unwrap_or_else(|| "http://localhost".to_string());
 
@@ -127,8 +128,8 @@ impl Config {
 }
 
 fn get_token_cache_path() -> anyhow::Result<PathBuf> {
-    let mut path = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let mut path =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     path.push(".colony-cli");
 
     // Create directory if it doesn't exist
@@ -151,9 +152,7 @@ fn load_cached_token() -> anyhow::Result<Option<StoredToken>> {
     let stored_token: StoredToken = serde_json::from_str(&token_data)?;
 
     // Check if token is expired
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
     if stored_token.expires_at <= now {
         return Ok(None); // Token is expired
@@ -165,9 +164,7 @@ fn load_cached_token() -> anyhow::Result<Option<StoredToken>> {
 fn save_token_to_cache(token: &str, expires_in: u64, token_type: &str) -> anyhow::Result<()> {
     let token_path = get_token_cache_path()?;
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
     let stored_token = StoredToken {
         token: token.to_string(),
@@ -204,7 +201,11 @@ async fn request_new_token(config: &Config) -> anyhow::Result<String> {
         let token_response: TokenResponse = response.json().await?;
 
         // Save token to cache
-        save_token_to_cache(&token_response.token, token_response.expires_in, &token_response.token_type)?;
+        save_token_to_cache(
+            &token_response.token,
+            token_response.expires_in,
+            &token_response.token_type,
+        )?;
 
         println!("{}", "✅ Authentication successful".green());
         Ok(token_response.token)
@@ -321,10 +322,7 @@ async fn wait_for_job_completion_no_auth(
     loop {
         // Check job status (no auth required for public job endpoints)
         let status_url = format!("{base_url}/colony-0/jobs/{job_id}");
-        let response = client
-            .get(&status_url)
-            .send()
-            .await?;
+        let response = client.get(&status_url).send().await?;
 
         if response.status().is_success() {
             let job_status: JobStatus = response.json().await?;
@@ -341,10 +339,7 @@ async fn wait_for_job_completion_no_auth(
 
                     // Get the result (no auth required for public job endpoints)
                     let result_url = format!("{base_url}/colony-0/jobs/{job_id}/result");
-                    let result_response = client
-                        .get(&result_url)
-                        .send()
-                        .await?;
+                    let result_response = client.get(&result_url).send().await?;
 
                     if result_response.status().is_success() {
                         let job_result: JobResult = result_response.json().await?;
@@ -388,14 +383,22 @@ fn print_search_results_table(value: &Value) {
         if let Some(results) = sparql_results.get("results") {
             if let Some(bindings) = results.get("bindings") {
                 bindings.as_array()
-            } else { None }
-        } else { None }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     } else if let Some(results) = value.get("results") {
         // Direct format: results.bindings
         if let Some(bindings) = results.get("bindings") {
             bindings.as_array()
-        } else { None }
-    } else { None };
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     if let Some(bindings_array) = bindings_array {
         if bindings_array.is_empty() {
@@ -407,12 +410,14 @@ fn print_search_results_table(value: &Value) {
         // Subject searches use 'graph', 'predicate', 'object' variables
         // General searches use 'subject', 'predicate', 'object' variables
         let has_graph_vars = bindings_array.iter().any(|binding| {
-            binding.get("graph").is_some() && binding.get("predicate").is_some() && binding.get("object").is_some()
+            binding.get("graph").is_some()
+                && binding.get("predicate").is_some()
+                && binding.get("object").is_some()
         });
 
-        let has_subject_vars = bindings_array.iter().any(|binding| {
-            binding.get("subject").is_some()
-        });
+        let has_subject_vars = bindings_array
+            .iter()
+            .any(|binding| binding.get("subject").is_some());
 
         if has_graph_vars && !has_subject_vars {
             // This is a subject search - display detailed information
@@ -444,10 +449,12 @@ fn print_subject_details(value: &Value, bindings_array: &[Value]) {
         }
 
         // Extract predicate-object pairs from 'predicate' and 'object' fields
-        if let (Some(predicate_obj), Some(object_obj)) = (binding.get("predicate"), binding.get("object")) {
+        if let (Some(predicate_obj), Some(object_obj)) =
+            (binding.get("predicate"), binding.get("object"))
+        {
             if let (Some(predicate_str), Some(object_str)) = (
                 predicate_obj.get("value").and_then(|v| v.as_str()),
-                object_obj.get("value").and_then(|v| v.as_str())
+                object_obj.get("value").and_then(|v| v.as_str()),
             ) {
                 predicate_objects.push((predicate_str.to_string(), object_str.to_string()));
             }
@@ -490,7 +497,10 @@ fn print_subject_details(value: &Value, bindings_array: &[Value]) {
 
     if !predicate_objects.is_empty() {
         println!("{}", "📋 Properties:".cyan().bold());
-        println!("{}", format!("{:<50} {}", "Predicate", "Object").cyan().bold());
+        println!(
+            "{}",
+            format!("{:<50} {}", "Predicate", "Object").cyan().bold()
+        );
         println!("{}", "─".repeat(172).cyan());
 
         for (predicate, object) in predicate_objects {
@@ -537,18 +547,27 @@ fn print_subjects_table(bindings_array: &[Value]) {
                 if let Some(subject_str) = subject_value.as_str() {
                     // Extract the address part from ant:// URIs
                     if subject_str.starts_with("ant://") {
-                        subject_str.strip_prefix("ant://").unwrap_or(subject_str).to_string()
+                        subject_str
+                            .strip_prefix("ant://")
+                            .unwrap_or(subject_str)
+                            .to_string()
                     } else {
                         subject_str.to_string()
                     }
-                } else { continue; }
-            } else { continue; }
-        } else { continue; };
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
 
         // Get or create subject entry
-        let subject_entry = subjects.entry(subject_address.clone()).or_insert_with(|| {
-            (String::new(), String::new(), subject_address)
-        });
+        let subject_entry = subjects
+            .entry(subject_address.clone())
+            .or_insert_with(|| (String::new(), String::new(), subject_address));
 
         // Extract predicate and object
         if let Some(predicate_obj) = binding.get("predicate") {
@@ -594,17 +613,35 @@ fn print_subjects_table(bindings_array: &[Value]) {
     }
 
     // Print table header
-    println!("{}", format!("{:<30} {:<50} {:<96}", "Name", "Description", "Address").cyan().bold());
+    println!(
+        "{}",
+        format!("{:<30} {:<50} {:<96}", "Name", "Description", "Address")
+            .cyan()
+            .bold()
+    );
     println!("{}", "─".repeat(178).cyan());
 
     // Print each subject
     for (name, description, address) in subjects.values() {
         // Truncate long values for table display
-        let name_display = if name.len() > 28 { format!("{}...", &name[..25]) } else { name.clone() };
-        let desc_display = if description.len() > 48 { format!("{}...", &description[..45]) } else { description.clone() };
-        let addr_display = if address.len() > 96 { format!("{}...", &address[..93]) } else { address.clone() };
+        let name_display = if name.len() > 28 {
+            format!("{}...", &name[..25])
+        } else {
+            name.clone()
+        };
+        let desc_display = if description.len() > 48 {
+            format!("{}...", &description[..45])
+        } else {
+            description.clone()
+        };
+        let addr_display = if address.len() > 96 {
+            format!("{}...", &address[..93])
+        } else {
+            address.clone()
+        };
 
-        println!("{:<30} {:<50} {:<96}",
+        println!(
+            "{:<30} {:<50} {:<96}",
             name_display.green(),
             desc_display.white(),
             addr_display.blue()
@@ -794,14 +831,12 @@ async fn main() -> anyhow::Result<()> {
             Command::new("add")
                 .about("➕ Add operations")
                 .subcommand(
-                    Command::new("pod")
-                        .about("Add a new pod")
-                        .arg(
-                            Arg::new("name")
-                                .value_name("NAME")
-                                .help("Name for the new pod")
-                                .required(true),
-                        ),
+                    Command::new("pod").about("Add a new pod").arg(
+                        Arg::new("name")
+                            .value_name("NAME")
+                            .help("Name for the new pod")
+                            .required(true),
+                    ),
                 )
                 .subcommand(
                     Command::new("ref")
@@ -824,14 +859,12 @@ async fn main() -> anyhow::Result<()> {
             Command::new("rm")
                 .about("🗑️ Remove operations")
                 .subcommand(
-                    Command::new("pod")
-                        .about("Remove a pod")
-                        .arg(
-                            Arg::new("address")
-                                .value_name("POD_ADDRESS")
-                                .help("Pod address to remove")
-                                .required(true),
-                        ),
+                    Command::new("pod").about("Remove a pod").arg(
+                        Arg::new("address")
+                            .value_name("POD_ADDRESS")
+                            .help("Pod address to remove")
+                            .required(true),
+                    ),
                 )
                 .subcommand(
                     Command::new("ref")
@@ -927,7 +960,10 @@ async fn main() -> anyhow::Result<()> {
             handle_put(&config, sub_matches).await?;
         }
         _ => {
-            println!("{}", "❌ No command specified. Use --help for usage information.".red());
+            println!(
+                "{}",
+                "❌ No command specified. Use --help for usage information.".red()
+            );
             std::process::exit(1);
         }
     }
@@ -962,7 +998,8 @@ async fn handle_refresh(config: &Config, matches: &ArgMatches) -> anyhow::Result
 
     if response.status().is_success() {
         let job_response: JobResponse = response.json().await?;
-        let result = wait_for_job_completion_no_auth(config, &job_response.job_id, &operation_name).await?;
+        let result =
+            wait_for_job_completion_no_auth(config, &job_response.job_id, &operation_name).await?;
 
         println!("\n{}", "📋 Result:".green().bold());
         print_json_pretty(&result);
@@ -1003,7 +1040,8 @@ async fn handle_upload(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
     if response.status().is_success() {
         let job_response: JobResponse = response.json().await?;
-        let result = wait_for_job_completion(config, &token, &job_response.job_id, &operation_name).await?;
+        let result =
+            wait_for_job_completion(config, &token, &job_response.job_id, &operation_name).await?;
 
         println!("\n{}", "📋 Result:".green().bold());
         print_json_pretty(&result);
@@ -1041,7 +1079,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "SPARQL search").await?;
+                let result =
+                    wait_for_job_completion_no_auth(config, &job_response.job_id, "SPARQL search")
+                        .await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 if json {
@@ -1063,7 +1103,12 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 .and_then(|l| l.parse().ok())
                 .unwrap_or(50);
 
-            println!("{} {} (limit: {})", "🔍 Searching text:".cyan(), query.yellow(), limit);
+            println!(
+                "{} {} (limit: {})",
+                "🔍 Searching text:".cyan(),
+                query.yellow(),
+                limit
+            );
 
             let search_payload = json!({
                 "type": "text",
@@ -1081,7 +1126,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Text search").await?;
+                let result =
+                    wait_for_job_completion_no_auth(config, &job_response.job_id, "Text search")
+                        .await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 if json {
@@ -1103,7 +1150,12 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 .and_then(|l| l.parse().ok())
                 .unwrap_or(50);
 
-            println!("{} {} (limit: {})", "🔍 Searching by type:".cyan(), type_name.yellow(), limit);
+            println!(
+                "{} {} (limit: {})",
+                "🔍 Searching by type:".cyan(),
+                type_name.yellow(),
+                limit
+            );
 
             let search_payload = json!({
                 "type": "by-type",
@@ -1121,7 +1173,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Type search").await?;
+                let result =
+                    wait_for_job_completion_no_auth(config, &job_response.job_id, "Type search")
+                        .await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 if json {
@@ -1143,7 +1197,12 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 .and_then(|l| l.parse().ok())
                 .unwrap_or(50);
 
-            println!("{} {} (limit: {})", "🔍 Searching by predicate:".cyan(), predicate.yellow(), limit);
+            println!(
+                "{} {} (limit: {})",
+                "🔍 Searching by predicate:".cyan(),
+                predicate.yellow(),
+                limit
+            );
 
             let search_payload = json!({
                 "type": "by-predicate",
@@ -1161,7 +1220,12 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Predicate search").await?;
+                let result = wait_for_job_completion_no_auth(
+                    config,
+                    &job_response.job_id,
+                    "Predicate search",
+                )
+                .await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 if json {
@@ -1189,7 +1253,9 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             if response.status().is_success() {
                 let job_response: JobResponse = response.json().await?;
-                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "Subject search").await?;
+                let result =
+                    wait_for_job_completion_no_auth(config, &job_response.job_id, "Subject search")
+                        .await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());
                 if json {
@@ -1204,7 +1270,10 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
             }
         }
         _ => {
-            println!("{}", "❌ No search subcommand specified. Use --help for usage information.".red());
+            println!(
+                "{}",
+                "❌ No search subcommand specified. Use --help for usage information.".red()
+            );
             std::process::exit(1);
         }
     }
@@ -1248,9 +1317,7 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             let name = sub_matches.get_one::<String>("name").unwrap();
             println!("{} {}", "➕ Adding new pod:".cyan(), name.yellow());
 
-            let pod_request = CreatePodRequest {
-                name: name.clone(),
-            };
+            let pod_request = CreatePodRequest { name: name.clone() };
 
             let response = client
                 .post(format!("{base_url}/colony-0/pods"))
@@ -1263,7 +1330,8 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             if response.status().is_success() {
                 let pod: PodResponse = response.json().await?;
                 println!("\n{}", "✅ Pod created successfully!".green().bold());
-                println!("📦 {} {} ({})",
+                println!(
+                    "📦 {} {} ({})",
                     "Name:".blue(),
                     pod.name.yellow().bold(),
                     pod.address.cyan()
@@ -1277,7 +1345,12 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
         Some(("ref", sub_matches)) => {
             let pod = sub_matches.get_one::<String>("pod").unwrap();
             let pod_ref = sub_matches.get_one::<String>("ref").unwrap();
-            println!("{} {} to pod {}", "➕ Adding reference".cyan(), pod_ref.yellow(), pod.yellow());
+            println!(
+                "{} {} to pod {}",
+                "➕ Adding reference".cyan(),
+                pod_ref.yellow(),
+                pod.yellow()
+            );
 
             let ref_request = PodRefRequest {
                 pod_ref: pod_ref.clone(),
@@ -1302,7 +1375,10 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             }
         }
         _ => {
-            println!("{}", "❌ No add subcommand specified. Use --help for usage information.".red());
+            println!(
+                "{}",
+                "❌ No add subcommand specified. Use --help for usage information.".red()
+            );
             std::process::exit(1);
         }
     }
@@ -1337,7 +1413,12 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
         Some(("ref", sub_matches)) => {
             let pod = sub_matches.get_one::<String>("pod").unwrap();
             let pod_ref = sub_matches.get_one::<String>("ref").unwrap();
-            println!("{} {} from pod {}", "🗑️ Removing reference".cyan(), pod_ref.yellow(), pod.yellow());
+            println!(
+                "{} {} from pod {}",
+                "🗑️ Removing reference".cyan(),
+                pod_ref.yellow(),
+                pod.yellow()
+            );
 
             let ref_request = PodRefRequest {
                 pod_ref: pod_ref.clone(),
@@ -1362,7 +1443,10 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
             }
         }
         _ => {
-            println!("{}", "❌ No rm subcommand specified. Use --help for usage information.".red());
+            println!(
+                "{}",
+                "❌ No rm subcommand specified. Use --help for usage information.".red()
+            );
             std::process::exit(1);
         }
     }
@@ -1379,7 +1463,12 @@ async fn handle_rename(config: &Config, matches: &ArgMatches) -> anyhow::Result<
         Some(("pod", sub_matches)) => {
             let pod_address = sub_matches.get_one::<String>("address").unwrap();
             let new_name = sub_matches.get_one::<String>("name").unwrap();
-            println!("{} {} to {}", "✏️ Renaming pod".cyan(), pod_address.yellow(), new_name.yellow());
+            println!(
+                "{} {} to {}",
+                "✏️ Renaming pod".cyan(),
+                pod_address.yellow(),
+                new_name.yellow()
+            );
 
             let rename_request = RenamePodRequest {
                 name: new_name.clone(),
@@ -1402,7 +1491,10 @@ async fn handle_rename(config: &Config, matches: &ArgMatches) -> anyhow::Result<
             }
         }
         _ => {
-            println!("{}", "❌ No rename subcommand specified. Use --help for usage information.".red());
+            println!(
+                "{}",
+                "❌ No rename subcommand specified. Use --help for usage information.".red()
+            );
             std::process::exit(1);
         }
     }
@@ -1415,7 +1507,8 @@ async fn handle_put(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
     let subject = matches.get_one::<String>("subject").unwrap();
     let data_str = matches.get_one::<String>("data").unwrap();
 
-    println!("{} {} in pod {} for subject {}",
+    println!(
+        "{} {} in pod {} for subject {}",
         "📝 Putting data".cyan(),
         data_str.yellow(),
         pod.yellow(),

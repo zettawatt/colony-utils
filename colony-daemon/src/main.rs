@@ -1,18 +1,18 @@
-use autonomi::{Wallet, Client};
+use autonomi::{Client, Wallet};
 use axum::{
+    Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     middleware,
     response::Json,
     routing::{delete, get, post, put},
-    Router,
 };
 use bip39::Mnemonic;
 use clap::{Arg, Command};
-use colonylib::{KeyStore, PodManager, DataStore, Graph};
-use dialoguer::{Input, Password, Confirm};
+use colonylib::{DataStore, Graph, KeyStore, PodManager};
+use dialoguer::{Confirm, Input, Password};
 use indicatif::{ProgressBar, ProgressStyle};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::{
@@ -31,7 +31,8 @@ use uuid::Uuid;
 use tracing_subscriber::prelude::*;
 
 // ETH wallet for local testnet
-const LOCAL_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const LOCAL_PRIVATE_KEY: &str =
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
@@ -213,7 +214,13 @@ impl JobManager {
         Ok(job_id)
     }
 
-    async fn update_job_status(&self, job_id: &str, status: JobStatus, message: Option<String>, progress: Option<f32>) {
+    async fn update_job_status(
+        &self,
+        job_id: &str,
+        status: JobStatus,
+        message: Option<String>,
+        progress: Option<f32>,
+    ) {
         let mut jobs = self.jobs.lock().await;
         if let Some(job) = jobs.get_mut(job_id) {
             job.status = status;
@@ -230,7 +237,11 @@ impl JobManager {
     async fn complete_job(&self, job_id: &str, result: Option<Value>, error: Option<String>) {
         let mut jobs = self.jobs.lock().await;
         if let Some(job) = jobs.get_mut(job_id) {
-            job.status = if error.is_some() { JobStatus::Failed } else { JobStatus::Completed };
+            job.status = if error.is_some() {
+                JobStatus::Failed
+            } else {
+                JobStatus::Completed
+            };
             job.result = result;
             job.error = error;
             job.progress = Some(1.0);
@@ -279,26 +290,48 @@ impl PodService {
 
     // Helper method to safely extract components and ensure they're always restored
     fn extract_components(&self) -> Result<(Client, Wallet, DataStore, KeyStore, Graph), String> {
-        let client = self.client.lock().unwrap()
+        let client = self
+            .client
+            .lock()
+            .unwrap()
             .take()
             .ok_or("Client not initialized")?;
-        let wallet = self.wallet.lock().unwrap()
+        let wallet = self
+            .wallet
+            .lock()
+            .unwrap()
             .take()
             .ok_or("Wallet not initialized")?;
-        let data_store = self.data_store.lock().unwrap()
+        let data_store = self
+            .data_store
+            .lock()
+            .unwrap()
             .take()
             .ok_or("DataStore not initialized")?;
-        let keystore = self.keystore.lock().unwrap()
+        let keystore = self
+            .keystore
+            .lock()
+            .unwrap()
             .take()
             .ok_or("KeyStore not initialized")?;
-        let graph = self.graph.lock().unwrap()
+        let graph = self
+            .graph
+            .lock()
+            .unwrap()
             .take()
             .ok_or("Graph not initialized")?;
         Ok((client, wallet, data_store, keystore, graph))
     }
 
     // Helper method to restore components
-    fn restore_components(&self, client: Client, wallet: Wallet, data_store: DataStore, keystore: KeyStore, graph: Graph) {
+    fn restore_components(
+        &self,
+        client: Client,
+        wallet: Wallet,
+        data_store: DataStore,
+        keystore: KeyStore,
+        graph: Graph,
+    ) {
         *self.client.lock().unwrap() = Some(client);
         *self.wallet.lock().unwrap() = Some(wallet);
         *self.data_store.lock().unwrap() = Some(data_store);
@@ -313,7 +346,8 @@ impl PodService {
         info!("Refreshing cache");
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -322,15 +356,20 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.refresh_cache().await
+            podman
+                .refresh_cache()
+                .await
                 .map_err(|e| format!("Failed to refresh cache: {e}"))?;
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -357,7 +396,8 @@ impl PodService {
         info!("Refreshing pod references to depth {}", depth);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -366,15 +406,20 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.refresh_ref(depth).await
+            podman
+                .refresh_ref(depth)
+                .await
                 .map_err(|e| format!("Failed to refresh pod references: {e}"))?;
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -397,11 +442,16 @@ impl PodService {
     }
 
     // Maps to PodManager::add_pod()
-    async fn add_pod(&self, request: CreatePodRequest, keystore_password: &str) -> Result<PodResponse, String> {
+    async fn add_pod(
+        &self,
+        request: CreatePodRequest,
+        keystore_password: &str,
+    ) -> Result<PodResponse, String> {
         info!("Adding pod: {}", request.name);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -410,11 +460,15 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            let (pod_address, _pod_data) = podman.add_pod(&request.name).await
+            let (pod_address, _pod_data) = podman
+                .add_pod(&request.name)
+                .await
                 .map_err(|e| format!("Failed to add pod: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
@@ -422,7 +476,8 @@ impl PodService {
             KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(pod_address)
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -449,7 +504,8 @@ impl PodService {
         info!("Uploading pod {}", &request.address);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -458,15 +514,20 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.upload_pod(&request.address).await
+            podman
+                .upload_pod(&request.address)
+                .await
                 .map_err(|e| format!("Failed to upload pod {}: {}", &request.address, e))?;
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -493,7 +554,8 @@ impl PodService {
         info!("Uploading all pods");
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -502,15 +564,20 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.upload_all().await
+            podman
+                .upload_all()
+                .await
                 .map_err(|e| format!("Failed to upload all pods: {e}"))?;
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -536,7 +603,8 @@ impl PodService {
         info!("Getting subject data for: {}", address);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -545,17 +613,22 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            let subject_data = podman.get_subject_data(address).await
+            let subject_data = podman
+                .get_subject_data(address)
+                .await
                 .map_err(|e| format!("Failed to get subject data: {e}"))?;
 
             // Parse the subject data string as JSON
             serde_json::from_str(&subject_data)
                 .map_err(|e| format!("Failed to parse subject data as JSON: {e}"))
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -574,11 +647,21 @@ impl PodService {
     }
 
     // Maps to PodManager::put_subject_data()
-    async fn put_subject_data(&self, pod_address: &str, subject: &str, data: Value, keystore_password: &str) -> Result<Value, String> {
-        info!("Putting subject data for {} into pod {}", subject, pod_address);
+    async fn put_subject_data(
+        &self,
+        pod_address: &str,
+        subject: &str,
+        data: Value,
+        keystore_password: &str,
+    ) -> Result<Value, String> {
+        info!(
+            "Putting subject data for {} into pod {}",
+            subject, pod_address
+        );
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -587,15 +670,19 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Convert the JSON data to string for PodManager
             let data_string = serde_json::to_string(&data)
                 .map_err(|e| format!("Failed to serialize data: {e}"))?;
 
             // Use the PodManager
-            podman.put_subject_data(pod_address, subject, &data_string).await
+            podman
+                .put_subject_data(pod_address, subject, &data_string)
+                .await
                 .map_err(|e| format!("Failed to put subject data: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
@@ -603,7 +690,8 @@ impl PodService {
             KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -611,22 +699,34 @@ impl PodService {
         // Handle the result
         match result {
             Ok(()) => {
-                info!("Subject data updated successfully for {} in pod {}", subject, pod_address);
+                info!(
+                    "Subject data updated successfully for {} in pod {}",
+                    subject, pod_address
+                );
                 Ok(data)
             }
             Err(e) => {
-                warn!("Failed to put subject data for {} in pod {}: {}", subject, pod_address, e);
+                warn!(
+                    "Failed to put subject data for {} in pod {}: {}",
+                    subject, pod_address, e
+                );
                 Err(e)
             }
         }
     }
 
     // Maps to PodManager::add_pod_ref()
-    async fn add_pod_ref(&self, id: &str, request: PodRefRequest, keystore_password: &str) -> Result<(), String> {
+    async fn add_pod_ref(
+        &self,
+        id: &str,
+        request: PodRefRequest,
+        keystore_password: &str,
+    ) -> Result<(), String> {
         info!("Adding pod reference for {}: {}", id, request.pod_ref);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -635,11 +735,15 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.add_pod_ref(id, &request.pod_ref).await
+            podman
+                .add_pod_ref(id, &request.pod_ref)
+                .await
                 .map_err(|e| format!("Failed to add pod reference: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
@@ -647,7 +751,8 @@ impl PodService {
             KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -655,7 +760,10 @@ impl PodService {
         // Handle the result
         match result {
             Ok(()) => {
-                info!("Pod reference added successfully for {}: {}", id, request.pod_ref);
+                info!(
+                    "Pod reference added successfully for {}: {}",
+                    id, request.pod_ref
+                );
                 Ok(())
             }
             Err(e) => {
@@ -670,7 +778,8 @@ impl PodService {
         info!("Removing pod reference for {}: {}", id, request.pod_ref);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -679,15 +788,20 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.remove_pod_ref(id, &request.pod_ref).await
+            podman
+                .remove_pod_ref(id, &request.pod_ref)
+                .await
                 .map_err(|e| format!("Failed to remove pod reference: {e}"))?;
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -695,7 +809,10 @@ impl PodService {
         // Handle the result
         match result {
             Ok(()) => {
-                info!("Pod reference removed successfully for {}: {}", id, request.pod_ref);
+                info!(
+                    "Pod reference removed successfully for {}: {}",
+                    id, request.pod_ref
+                );
                 Ok(())
             }
             Err(e) => {
@@ -710,7 +827,8 @@ impl PodService {
         info!("Searching for: {}", query.to_string());
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -719,15 +837,20 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            let results = podman.search(query.clone()).await
+            let results = podman
+                .search(query.clone())
+                .await
                 .map_err(|e| format!("Failed to search: {e}"))?;
 
             Ok(results)
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -750,7 +873,8 @@ impl PodService {
         info!("Listing my pods");
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -759,15 +883,19 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager to list pods
-            let results = podman.list_my_pods()
+            let results = podman
+                .list_my_pods()
                 .map_err(|e| format!("Failed to list pods: {e}"))?;
 
             Ok(results)
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -790,7 +918,8 @@ impl PodService {
         info!("Removing pod: {}", pod_address);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -799,11 +928,15 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.remove_pod(pod_address).await
+            podman
+                .remove_pod(pod_address)
+                .await
                 .map_err(|e| format!("Failed to remove pod: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
@@ -811,7 +944,8 @@ impl PodService {
             KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -830,11 +964,17 @@ impl PodService {
     }
 
     // Maps to PodManager::rename_pod()
-    async fn rename_pod(&self, pod_address: &str, request: RenamePodRequest, keystore_password: &str) -> Result<(), String> {
+    async fn rename_pod(
+        &self,
+        pod_address: &str,
+        request: RenamePodRequest,
+        keystore_password: &str,
+    ) -> Result<(), String> {
         info!("Renaming pod {} to: {}", pod_address, request.name);
 
         // Extract components
-        let (client, wallet, mut data_store, mut keystore, mut graph) = self.extract_components()?;
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -843,11 +983,15 @@ impl PodService {
                 &wallet,
                 &mut data_store,
                 &mut keystore,
-                &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
-            podman.rename_pod(pod_address, &request.name).await
+            podman
+                .rename_pod(pod_address, &request.name)
+                .await
                 .map_err(|e| format!("Failed to rename pod: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
@@ -855,7 +999,8 @@ impl PodService {
             KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
-        }.await;
+        }
+        .await;
 
         // Always restore components, regardless of success or failure
         self.restore_components(client, wallet, data_store, keystore, graph);
@@ -863,17 +1008,21 @@ impl PodService {
         // Handle the result
         match result {
             Ok(()) => {
-                info!("Pod renamed successfully: {} -> {}", pod_address, request.name);
+                info!(
+                    "Pod renamed successfully: {} -> {}",
+                    pod_address, request.name
+                );
                 Ok(())
             }
             Err(e) => {
-                warn!("Failed to rename pod {} to {}: {}", pod_address, request.name, e);
+                warn!(
+                    "Failed to rename pod {} to {}: {}",
+                    pod_address, request.name, e
+                );
                 Err(e)
             }
         }
     }
-
-
 }
 
 #[derive(Clone)]
@@ -887,27 +1036,23 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     // Setup enhanced logging with structured output
     let subscriber = tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| {
-                    //"colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug,autonomi=error".into()
-                    "".into()
-                })
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                //"colony_daemon=debug,colonylib=debug,tower_http=debug,axum=debug,autonomi=error".into()
+                "".into()
+            }),
         )
         .with(
             tracing_subscriber::fmt::layer()
                 .with_target(true)
                 .with_thread_ids(true)
                 .with_file(true)
-                .with_line_number(true)
-                //.json()
+                .with_line_number(true), //.json()
         );
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     info!("Starting colony-daemon");
 
@@ -974,9 +1119,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /////////////////////////////////
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
     pb.set_message("Setting up DataStore...");
     pb.enable_steady_tick(Duration::from_millis(100));
 
@@ -991,14 +1138,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let downloads_dir = if let Some(downloads_dir) = dirs::download_dir() {
             downloads_dir
         } else {
-            dirs::home_dir().ok_or("Could not determine downloads directory")?.join("Downloads")
+            dirs::home_dir()
+                .ok_or("Could not determine downloads directory")?
+                .join("Downloads")
         };
 
-        DataStore::from_paths(
-            data_dir.clone(),
-            pods_dir,
-            downloads_dir,
-        ).map_err(|e| format!("Failed to create DataStore from paths: {e}"))?
+        DataStore::from_paths(data_dir.clone(), pods_dir, downloads_dir)
+            .map_err(|e| format!("Failed to create DataStore from paths: {e}"))?
     };
 
     pb.finish_with_message("DataStore setup complete");
@@ -1047,22 +1193,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // If the SECRET_KEY environment variable is set, use that as the wallet key
             if let Ok(secret_key) = std::env::var("SECRET_KEY") {
                 println!("No wallet key provided, using SECRET_KEY environment variable");
-                keystore.set_wallet_key(secret_key)
-                .map_err(|e| format!("Failed to set wallet key: {e}"))?;
+                keystore
+                    .set_wallet_key(secret_key)
+                    .map_err(|e| format!("Failed to set wallet key: {e}"))?;
             } else {
                 println!("No wallet key provided, using default local testnet key");
-                keystore.set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
-                .map_err(|e| format!("Failed to set wallet key: {e}"))?;
+                keystore
+                    .set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
+                    .map_err(|e| format!("Failed to set wallet key: {e}"))?;
             }
         } else {
-            keystore.set_wallet_key(wallet_key)
-            .map_err(|e| format!("Failed to set wallet key: {e}"))?;
+            keystore
+                .set_wallet_key(wallet_key)
+                .map_err(|e| format!("Failed to set wallet key: {e}"))?;
         }
 
         // Save KeyStore to file
         let mut file = fs::File::create(&keystore_path)
             .map_err(|e| format!("Failed to create keystore file: {e}"))?;
-        keystore.to_file(&mut file, &keystore_password)
+        keystore
+            .to_file(&mut file, &keystore_password)
             .map_err(|e| format!("Failed to save KeyStore: {e}"))?;
 
         keystore
@@ -1086,21 +1236,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     info!("KeyStore loaded successfully");
-    
+
     /////////////////////////////////
     // Graph setup step
     /////////////////////////////////
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
     pb.set_message("Setting up Graph...");
     pb.enable_steady_tick(Duration::from_millis(100));
 
     let graph_path = data_store.get_graph_path();
-    let mut graph = Graph::open(&graph_path)
-        .map_err(|e| format!("Failed to open Graph: {e}"))?;
+    let mut graph = Graph::open(&graph_path).map_err(|e| format!("Failed to open Graph: {e}"))?;
 
     pb.finish_with_message("Graph setup complete");
     info!("Graph initialized at: {:?}", graph_path);
@@ -1110,9 +1261,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /////////////////////////////////
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
     pb.set_message("Connecting to Autonomi network...");
     pb.enable_steady_tick(Duration::from_millis(100));
 
@@ -1130,15 +1283,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /////////////////////////////////
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
     pb.set_message("Setting up PodManager...");
     pb.enable_steady_tick(Duration::from_millis(100));
 
     // Test PodManager creation to ensure components are compatible
-    let _pod_manager = PodManager::new(client.clone(), &wallet, &mut data_store, &mut keystore, &mut graph).await
-        .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+    let _pod_manager = PodManager::new(
+        client.clone(),
+        &wallet,
+        &mut data_store,
+        &mut keystore,
+        &mut graph,
+    )
+    .await
+    .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
     pb.finish_with_message("PodManager setup complete");
     info!("PodManager initialized successfully");
@@ -1148,9 +1310,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /////////////////////////////////
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
     pb.set_message("Starting REST server...");
     pb.enable_steady_tick(Duration::from_millis(100));
 
@@ -1176,18 +1340,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create socket address
     let addr = format!("{listen_ip}:{port}");
-    let listener = TcpListener::bind(&addr).await
+    let listener = TcpListener::bind(&addr)
+        .await
         .map_err(|e| format!("Failed to bind to {addr}: {e}"))?;
 
     pb.finish_with_message("REST server started");
     info!("Server listening on {}", addr);
 
     // Start the server
-    axum::serve(listener, app).await
+    axum::serve(listener, app)
+        .await
         .map_err(|e| format!("Server error: {e}"))?;
 
     Ok(())
-
 }
 
 async fn init_client(environment: String) -> Client {
@@ -1202,10 +1367,19 @@ fn create_router(state: AppState) -> Router {
     // Public routes (no authentication required)
     let public_routes = Router::new()
         // Asynchronous job-based endpoints
-        .route("/colony-0/jobs/cache/refresh", post(start_refresh_cache_job))
-        .route("/colony-0/jobs/cache/refresh/{depth}", post(start_refresh_ref_job))
+        .route(
+            "/colony-0/jobs/cache/refresh",
+            post(start_refresh_cache_job),
+        )
+        .route(
+            "/colony-0/jobs/cache/refresh/{depth}",
+            post(start_refresh_ref_job),
+        )
         .route("/colony-0/jobs/search", post(start_search_job))
-        .route("/colony-0/jobs/search/subject/{subject}", post(start_get_subject_data_job))
+        .route(
+            "/colony-0/jobs/search/subject/{subject}",
+            post(start_get_subject_data_job),
+        )
         .route("/colony-0/jobs/{job_id}", get(get_job_status))
         .route("/colony-0/jobs/{job_id}/result", get(get_job_result))
         // Synchronous endpoints
@@ -1219,13 +1393,22 @@ fn create_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         // Asynchronous job-based endpoints
         .route("/colony-0/jobs/cache/upload", post(start_upload_all_job))
-        .route("/colony-0/jobs/cache/upload/{address}", post(start_upload_pod_job))
+        .route(
+            "/colony-0/jobs/cache/upload/{address}",
+            post(start_upload_pod_job),
+        )
         // Synchronous endpoints
         .route("/colony-0/pods", get(list_my_pods).post(add_pod))
         .route("/colony-0/pods/{pod}", delete(remove_pod).post(rename_pod))
         .route("/colony-0/pods/{pod}/{subject}", put(put_subject_data))
-        .route("/colony-0/pods/{pod}/pod_ref", post(add_pod_ref).delete(remove_pod_ref))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .route(
+            "/colony-0/pods/{pod}/pod_ref",
+            post(add_pod_ref).delete(remove_pod_ref),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     // Combine routes with middleware
     Router::new()
@@ -1234,7 +1417,7 @@ fn create_router(state: AppState) -> Router {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(CorsLayer::permissive())
+                .layer(CorsLayer::permissive()),
         )
         .with_state(state)
 }
@@ -1269,7 +1452,10 @@ async fn auth_middleware(
                 return Err(StatusCode::UNAUTHORIZED);
             }
 
-            debug!("Valid token with password verification for user: {}", token_data.claims.sub);
+            debug!(
+                "Valid token with password verification for user: {}",
+                token_data.claims.sub
+            );
             Ok(next.run(request).await)
         }
         Err(err) => {
@@ -1395,7 +1581,11 @@ async fn add_pod(
 ) -> Result<Json<PodResponse>, (StatusCode, Json<ErrorResponse>)> {
     info!("Adding new pod: {}", request.name);
 
-    match state.pod_service.add_pod(request, &state.keystore_password).await {
+    match state
+        .pod_service
+        .add_pod(request, &state.keystore_password)
+        .await
+    {
         Ok(pod) => {
             info!("Pod added successfully: {}", pod.address);
             Ok(Json(pod))
@@ -1448,13 +1638,23 @@ async fn put_subject_data(
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
     info!("Putting subject data for {} in pod {}", subject, pod);
 
-    match state.pod_service.put_subject_data(&pod, &subject, data, &state.keystore_password).await {
+    match state
+        .pod_service
+        .put_subject_data(&pod, &subject, data, &state.keystore_password)
+        .await
+    {
         Ok(data) => {
-            info!("Subject data updated successfully for {} in pod {}", subject, pod);
+            info!(
+                "Subject data updated successfully for {} in pod {}",
+                subject, pod
+            );
             Ok(Json(data))
         }
         Err(err) => {
-            error!("Failed to update subject data for {} in pod {}: {}", subject, pod, err);
+            error!(
+                "Failed to update subject data for {} in pod {}: {}",
+                subject, pod, err
+            );
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -1475,7 +1675,11 @@ async fn add_pod_ref(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     info!("Adding pod reference for {}: {}", id, request.pod_ref);
 
-    match state.pod_service.add_pod_ref(&id, request, &state.keystore_password).await {
+    match state
+        .pod_service
+        .add_pod_ref(&id, request, &state.keystore_password)
+        .await
+    {
         Ok(()) => {
             info!("Pod reference added successfully for: {}", id);
             Ok(StatusCode::CREATED)
@@ -1528,7 +1732,11 @@ async fn remove_pod(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     info!("Removing pod: {}", pod_address);
 
-    match state.pod_service.remove_pod(&pod_address, &state.keystore_password).await {
+    match state
+        .pod_service
+        .remove_pod(&pod_address, &state.keystore_password)
+        .await
+    {
         Ok(()) => {
             info!("Pod removed successfully: {}", pod_address);
             Ok(StatusCode::NO_CONTENT)
@@ -1555,7 +1763,11 @@ async fn rename_pod(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     info!("Renaming pod {} to: {}", pod_address, request.name);
 
-    match state.pod_service.rename_pod(&pod_address, request, &state.keystore_password).await {
+    match state
+        .pod_service
+        .rename_pod(&pod_address, request, &state.keystore_password)
+        .await
+    {
         Ok(()) => {
             info!("Pod renamed successfully: {}", pod_address);
             Ok(StatusCode::OK)
@@ -1579,7 +1791,6 @@ async fn search(
     State(state): State<AppState>,
     Json(query): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
-
     info!("Searching for: {}", query.to_string());
 
     match state.pod_service.search(query.clone()).await {
@@ -1636,15 +1847,29 @@ async fn start_refresh_cache_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some("Starting cache refresh".to_string()), Some(0.1)).await;
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some("Starting cache refresh".to_string()),
+                        Some(0.1),
+                    )
+                    .await;
 
                 match state_clone.pod_service.refresh_cache().await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
-                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
                     }
                     Err(err) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
                     }
                 }
             });
@@ -1684,7 +1909,15 @@ async fn start_upload_pod_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some("Starting upload pod".to_string()), Some(0.1)).await;
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some("Starting upload pod".to_string()),
+                        Some(0.1),
+                    )
+                    .await;
 
                 let request = UploadPodRequest {
                     address: address.clone(),
@@ -1692,10 +1925,16 @@ async fn start_upload_pod_job(
                 match state_clone.pod_service.upload_pod(request).await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
-                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
                     }
                     Err(err) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
                     }
                 }
             });
@@ -1734,15 +1973,29 @@ async fn start_upload_all_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some("Starting upload all".to_string()), Some(0.1)).await;
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some("Starting upload all".to_string()),
+                        Some(0.1),
+                    )
+                    .await;
 
                 match state_clone.pod_service.upload_all().await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
-                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
                     }
                     Err(err) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
                     }
                 }
             });
@@ -1782,15 +2035,29 @@ async fn start_refresh_ref_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Starting refresh ref with depth {depth}")), Some(0.1)).await;
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some(format!("Starting refresh ref with depth {depth}")),
+                        Some(0.1),
+                    )
+                    .await;
 
                 match state_clone.pod_service.refresh_ref(depth).await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
-                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
                     }
                     Err(err) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
                     }
                 }
             });
@@ -1821,7 +2088,6 @@ async fn start_search_job(
     State(state): State<AppState>,
     Json(query): Json<Value>,
 ) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
-
     info!("Starting search job for: {}", query.to_string());
 
     match state.job_manager.create_job(JobType::Search).await {
@@ -1832,15 +2098,29 @@ async fn start_search_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {query_clone}")), Some(0.1)).await;
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some(format!("Searching for: {query_clone}")),
+                        Some(0.1),
+                    )
+                    .await;
 
                 match state_clone.pod_service.search(query_clone).await {
                     Ok(response) => {
                         let result = serde_json::to_value(response).unwrap_or_default();
-                        state_clone.job_manager.complete_job(&job_id_clone, Some(result), None).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
                     }
                     Err(err) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
                     }
                 }
             });
@@ -1881,14 +2161,32 @@ async fn start_get_subject_data_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Getting subject data for: {subject_clone}")), Some(0.1)).await;
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some(format!("Getting subject data for: {subject_clone}")),
+                        Some(0.1),
+                    )
+                    .await;
 
-                match state_clone.pod_service.get_subject_data(&subject_clone).await {
+                match state_clone
+                    .pod_service
+                    .get_subject_data(&subject_clone)
+                    .await
+                {
                     Ok(response) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, Some(response), None).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(response), None)
+                            .await;
                     }
                     Err(err) => {
-                        state_clone.job_manager.complete_job(&job_id_clone, None, Some(err)).await;
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
                     }
                 }
             });
@@ -1948,30 +2246,28 @@ async fn get_job_result(
     info!("Getting result for job: {}", job_id);
 
     match state.job_manager.get_job(&job_id).await {
-        Some(job) => {
-            match job.status {
-                JobStatus::Completed | JobStatus::Failed => {
-                    debug!("Job result retrieved for: {}", job_id);
-                    Ok(Json(JobResultResponse {
-                        job_id: job.id,
-                        status: job.status,
-                        result: job.result,
-                        error: job.error,
-                    }))
-                }
-                _ => {
-                    warn!("Job not yet completed: {}", job_id);
-                    Err((
-                        StatusCode::ACCEPTED,
-                        Json(ErrorResponse {
-                            error: "JOB_NOT_COMPLETED".to_string(),
-                            message: format!("Job {job_id} is not yet completed"),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        }),
-                    ))
-                }
+        Some(job) => match job.status {
+            JobStatus::Completed | JobStatus::Failed => {
+                debug!("Job result retrieved for: {}", job_id);
+                Ok(Json(JobResultResponse {
+                    job_id: job.id,
+                    status: job.status,
+                    result: job.result,
+                    error: job.error,
+                }))
             }
-        }
+            _ => {
+                warn!("Job not yet completed: {}", job_id);
+                Err((
+                    StatusCode::ACCEPTED,
+                    Json(ErrorResponse {
+                        error: "JOB_NOT_COMPLETED".to_string(),
+                        message: format!("Job {job_id} is not yet completed"),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    }),
+                ))
+            }
+        },
         None => {
             warn!("Job not found: {}", job_id);
             Err((
@@ -2011,21 +2307,23 @@ mod tests {
         fs::create_dir_all(&downloads_dir).unwrap();
 
         // Create a data store using custom paths to avoid conflicts between tests
-        let data_store = DataStore::from_paths(
-            data_dir,
-            pods_dir,
-            downloads_dir,
-        ).unwrap();
+        let data_store = DataStore::from_paths(data_dir, pods_dir, downloads_dir).unwrap();
 
         // Create a test keystore with a known mnemonic
         let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let mut keystore = KeyStore::from_mnemonic(test_mnemonic).unwrap();
-        keystore.set_wallet_key("0x1234567890123456789012345678901234567890123456789012345678901234".to_string()).unwrap();
+        keystore
+            .set_wallet_key(
+                "0x1234567890123456789012345678901234567890123456789012345678901234".to_string(),
+            )
+            .unwrap();
 
         // Save the keystore to file (PodManager might expect this file to exist)
         let keystore_path = data_store.get_keystore_path();
         let mut keystore_file = fs::File::create(&keystore_path).unwrap();
-        keystore.to_file(&mut keystore_file, "test_password").unwrap();
+        keystore
+            .to_file(&mut keystore_file, "test_password")
+            .unwrap();
 
         // Create a test graph
         let graph_path = data_store.get_graph_path();
@@ -2034,7 +2332,8 @@ mod tests {
         // Create test client and wallet
         let client = Client::init_local().await.unwrap();
         let wallet_key = keystore.get_wallet_key();
-        let wallet = Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key).unwrap();
+        let wallet =
+            Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key).unwrap();
 
         (client, wallet, data_store, keystore, graph)
     }
@@ -2055,10 +2354,6 @@ mod tests {
         }
     }
 
-
-
-
-
     #[tokio::test]
     async fn test_pod_service_add_pod() {
         let (client, wallet, data_store, keystore, graph) = create_mock_components().await;
@@ -2077,7 +2372,7 @@ mod tests {
                 println!("✅ Pod created successfully: {}", pod.name);
                 assert_eq!(pod.name, "test-pod");
                 assert!(pod.address.len() > 0);
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure in test environment: {}", e);
                 // In a test environment, we expect this to fail due to network issues
@@ -2097,8 +2392,11 @@ mod tests {
             Ok(response) => {
                 println!("✅ Refresh ref completed: {}", response.message);
                 assert_eq!(response.status, "success");
-                assert!(response.message.contains("Pod references refreshed") || response.message.contains("refreshed"));
-            },
+                assert!(
+                    response.message.contains("Pod references refreshed")
+                        || response.message.contains("refreshed")
+                );
+            }
             Err(e) => {
                 println!("⚠️  Expected failure in test environment: {}", e);
                 // In test environment, this may fail due to network issues
@@ -2129,7 +2427,7 @@ mod tests {
             Ok(response) => {
                 println!("✅ Upload all completed: {}", response.message);
                 assert!(response.message.contains("All pods uploaded"));
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure in test environment: {}", e);
                 // In test environment, this may fail due to network issues
@@ -2149,7 +2447,7 @@ mod tests {
             Ok(_) => {
                 println!("⚠️  Unexpected success - subject data found");
                 // This would be unexpected but not necessarily wrong
-            },
+            }
             Err(e) => {
                 println!("✅ Expected failure: {}", e);
                 // We expect this to fail with "Subject data not found" or similar
@@ -2173,14 +2471,23 @@ mod tests {
         assert!(matches!(job.job_type, JobType::RefreshCache));
 
         // Test updating job status
-        job_manager.update_job_status(&job_id, JobStatus::Running, Some("Running".to_string()), Some(0.5)).await;
+        job_manager
+            .update_job_status(
+                &job_id,
+                JobStatus::Running,
+                Some("Running".to_string()),
+                Some(0.5),
+            )
+            .await;
         let job = job_manager.get_job(&job_id).await.unwrap();
         assert!(matches!(job.status, JobStatus::Running));
         assert_eq!(job.progress, Some(0.5));
 
         // Test completing job
         let result = serde_json::json!({"test": "result"});
-        job_manager.complete_job(&job_id, Some(result.clone()), None).await;
+        job_manager
+            .complete_job(&job_id, Some(result.clone()), None)
+            .await;
         let job = job_manager.get_job(&job_id).await.unwrap();
         assert!(matches!(job.status, JobStatus::Completed));
         assert_eq!(job.result, Some(result));
@@ -2201,7 +2508,11 @@ mod tests {
         // Try to create second job - should fail
         let result = job_manager.create_job(JobType::UploadAll).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Another operation is already running"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Another operation is already running")
+        );
 
         // Complete first job
         job_manager.complete_job(&job_id1, None, None).await;
@@ -2217,13 +2528,15 @@ mod tests {
         let service = PodService::new(client, wallet, data_store, keystore, graph);
         let request = json!({"key": "value"});
 
-        let result = service.put_subject_data("test-id", "test-subject", request.clone(), "test_password").await;
+        let result = service
+            .put_subject_data("test-id", "test-subject", request.clone(), "test_password")
+            .await;
 
         match &result {
             Ok(data) => {
                 println!("✅ Subject data updated successfully");
                 assert_eq!(*data, request);
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure in test environment: {}", e);
                 // In test environment, this may fail due to network issues or missing pod
@@ -2240,14 +2553,16 @@ mod tests {
             pod_ref: "test-ref".to_string(),
         };
 
-        let result = service.add_pod_ref("test-id", request, "test_password").await;
+        let result = service
+            .add_pod_ref("test-id", request, "test_password")
+            .await;
 
         // Note: This test is expected to fail because we're trying to add a reference
         // to a pod that doesn't exist. The test passes if we get the expected error.
         match &result {
             Ok(_) => {
                 println!("✅ Pod reference added successfully");
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure: {}", e);
                 // We expect this to fail with "Pod not found" or similar
@@ -2269,7 +2584,7 @@ mod tests {
         match &result {
             Ok(_) => {
                 println!("✅ Pod reference removed successfully");
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure: {}", e);
                 // We expect this to fail because the pod/reference doesn't exist
@@ -2291,7 +2606,7 @@ mod tests {
         let result = service.search(request).await;
         assert!(result.is_ok());
 
-        let response:Value = result.unwrap();
+        let response: Value = result.unwrap();
         //FIXME: better test here
         assert!(response.is_object());
     }
@@ -2307,7 +2622,7 @@ mod tests {
         match &result {
             Ok(()) => {
                 println!("✅ Pod removed successfully");
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure: {}", e);
                 // We expect this to fail because the pod doesn't exist
@@ -2325,12 +2640,14 @@ mod tests {
             name: "new-pod-name".to_string(),
         };
 
-        let result = service.rename_pod(pod_address, request, "test-password").await;
+        let result = service
+            .rename_pod(pod_address, request, "test-password")
+            .await;
 
         match &result {
             Ok(()) => {
                 println!("✅ Pod renamed successfully");
-            },
+            }
             Err(e) => {
                 println!("⚠️  Expected failure: {}", e);
                 // We expect this to fail because the pod doesn't exist
@@ -2362,7 +2679,12 @@ mod tests {
         let password_arg = "invalid:format".to_string();
         let result = get_password(Some(&password_arg));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid password format"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid password format")
+        );
     }
 
     #[tokio::test]
@@ -2406,7 +2728,8 @@ mod tests {
         let result = create_token(
             axum::extract::State(app_state.clone()),
             axum::Json(auth_request),
-        ).await;
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -2422,7 +2745,8 @@ mod tests {
         let result = create_token(
             axum::extract::State(app_state.clone()),
             axum::Json(wrong_auth_request),
-        ).await;
+        )
+        .await;
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), StatusCode::UNAUTHORIZED);
@@ -2445,7 +2769,12 @@ mod tests {
             password_verified: false,
         };
 
-        let token_no_password = encode(&Header::default(), &claims_no_password, &app_state.encoding_key).unwrap();
+        let token_no_password = encode(
+            &Header::default(),
+            &claims_no_password,
+            &app_state.encoding_key,
+        )
+        .unwrap();
 
         // Verify we can decode the token but it should be rejected for lack of password verification
         let validation = Validation::new(Algorithm::HS256);
@@ -2463,9 +2792,15 @@ mod tests {
             password_verified: true,
         };
 
-        let token_with_password = encode(&Header::default(), &claims_with_password, &app_state.encoding_key).unwrap();
+        let token_with_password = encode(
+            &Header::default(),
+            &claims_with_password,
+            &app_state.encoding_key,
+        )
+        .unwrap();
 
-        let decoded_valid = decode::<Claims>(&token_with_password, &app_state.decoding_key, &validation);
+        let decoded_valid =
+            decode::<Claims>(&token_with_password, &app_state.decoding_key, &validation);
         assert!(decoded_valid.is_ok());
 
         let decoded_valid_claims = decoded_valid.unwrap().claims;
