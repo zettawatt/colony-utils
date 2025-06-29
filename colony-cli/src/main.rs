@@ -1,7 +1,6 @@
 use clap::{Arg, ArgMatches, Command};
 use colored::*;
 use dialoguer::Password;
-use dirs;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -103,8 +102,7 @@ struct Config {
 impl Config {
     fn new(matches: &ArgMatches) -> Self {
         let server = matches
-            .get_one::<String>("server")
-            .map(|s| s.clone())
+            .get_one::<String>("server").cloned()
             .or_else(|| env::var("COLONYCLI_SERVER").ok())
             .unwrap_or_else(|| "http://localhost".to_string());
 
@@ -243,14 +241,14 @@ async fn wait_for_job_completion(
             .template("{spinner:.green} {msg}")
             .unwrap(),
     );
-    pb.set_message(format!("🔄 {}", operation_name));
+    pb.set_message(format!("🔄 {operation_name}"));
 
     loop {
         // Check job status
-        let status_url = format!("{}/colony-0/jobs/{}", base_url, job_id);
+        let status_url = format!("{base_url}/colony-0/jobs/{job_id}");
         let response = client
             .get(&status_url)
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .send()
             .await?;
 
@@ -260,18 +258,18 @@ async fn wait_for_job_completion(
 
             // Update progress bar message
             if let Some(message) = &job.message {
-                pb.set_message(format!("🔄 {} - {}", operation_name, message));
+                pb.set_message(format!("🔄 {operation_name} - {message}"));
             }
 
             match job.status.as_str() {
                 "completed" => {
-                    pb.finish_with_message(format!("✅ {} completed", operation_name));
+                    pb.finish_with_message(format!("✅ {operation_name} completed"));
 
                     // Get the result
-                    let result_url = format!("{}/colony-0/jobs/{}/result", base_url, job_id);
+                    let result_url = format!("{base_url}/colony-0/jobs/{job_id}/result");
                     let result_response = client
                         .get(&result_url)
-                        .header("Authorization", format!("Bearer {}", token))
+                        .header("Authorization", format!("Bearer {token}"))
                         .send()
                         .await?;
 
@@ -284,7 +282,7 @@ async fn wait_for_job_completion(
                     }
                 }
                 "failed" => {
-                    pb.finish_with_message(format!("❌ {} failed", operation_name));
+                    pb.finish_with_message(format!("❌ {operation_name} failed"));
                     let error_msg = job.error.unwrap_or_else(|| "Unknown error".to_string());
                     anyhow::bail!("Job failed: {}", error_msg);
                 }
@@ -295,7 +293,7 @@ async fn wait_for_job_completion(
                 }
             }
         } else {
-            pb.finish_with_message(format!("❌ Failed to check {} status", operation_name));
+            pb.finish_with_message(format!("❌ Failed to check {operation_name} status"));
             let error_text = response.text().await?;
             anyhow::bail!("Failed to check job status: {}", error_text);
         }
@@ -318,11 +316,11 @@ async fn wait_for_job_completion_no_auth(
             .template("{spinner:.green} {msg}")
             .unwrap(),
     );
-    pb.set_message(format!("🔄 {}", operation_name));
+    pb.set_message(format!("🔄 {operation_name}"));
 
     loop {
         // Check job status (no auth required for public job endpoints)
-        let status_url = format!("{}/colony-0/jobs/{}", base_url, job_id);
+        let status_url = format!("{base_url}/colony-0/jobs/{job_id}");
         let response = client
             .get(&status_url)
             .send()
@@ -334,15 +332,15 @@ async fn wait_for_job_completion_no_auth(
 
             // Update progress bar message
             if let Some(message) = &job.message {
-                pb.set_message(format!("🔄 {} - {}", operation_name, message));
+                pb.set_message(format!("🔄 {operation_name} - {message}"));
             }
 
             match job.status.as_str() {
                 "completed" => {
-                    pb.finish_with_message(format!("✅ {} completed", operation_name));
+                    pb.finish_with_message(format!("✅ {operation_name} completed"));
 
                     // Get the result (no auth required for public job endpoints)
-                    let result_url = format!("{}/colony-0/jobs/{}/result", base_url, job_id);
+                    let result_url = format!("{base_url}/colony-0/jobs/{job_id}/result");
                     let result_response = client
                         .get(&result_url)
                         .send()
@@ -357,7 +355,7 @@ async fn wait_for_job_completion_no_auth(
                     }
                 }
                 "failed" => {
-                    pb.finish_with_message(format!("❌ {} failed", operation_name));
+                    pb.finish_with_message(format!("❌ {operation_name} failed"));
                     let error_msg = job.error.unwrap_or_else(|| "Unknown error".to_string());
                     anyhow::bail!("Job failed: {}", error_msg);
                 }
@@ -368,7 +366,7 @@ async fn wait_for_job_completion_no_auth(
                 }
             }
         } else {
-            pb.finish_with_message(format!("❌ Failed to check {} status", operation_name));
+            pb.finish_with_message(format!("❌ Failed to check {operation_name} status"));
             let error_text = response.text().await?;
             anyhow::bail!("Failed to check job status: {}", error_text);
         }
@@ -377,9 +375,9 @@ async fn wait_for_job_completion_no_auth(
 
 fn print_json_pretty(value: &Value) {
     if let Ok(pretty) = serde_json::to_string_pretty(value) {
-        println!("{}", pretty);
+        println!("{pretty}");
     } else {
-        println!("{}", value);
+        println!("{value}");
     }
 }
 
@@ -946,12 +944,12 @@ async fn handle_refresh(config: &Config, matches: &ArgMatches) -> anyhow::Result
 
     let (url, operation_name) = if let Some(depth) = matches.get_one::<String>("depth") {
         (
-            format!("{}/colony-0/jobs/cache/refresh/{}", base_url, depth),
-            format!("Cache refresh with depth {}", depth),
+            format!("{base_url}/colony-0/jobs/cache/refresh/{depth}"),
+            format!("Cache refresh with depth {depth}"),
         )
     } else {
         (
-            format!("{}/colony-0/jobs/cache/refresh", base_url),
+            format!("{base_url}/colony-0/jobs/cache/refresh"),
             "Cache refresh".to_string(),
         )
     };
@@ -985,20 +983,20 @@ async fn handle_upload(config: &Config, matches: &ArgMatches) -> anyhow::Result<
     let (url, operation_name) = if let Some(pod) = matches.get_one::<String>("pod") {
         println!("{} {}", "⬆️ Starting upload for pod:".cyan(), pod.yellow());
         (
-            format!("{}/colony-0/jobs/cache/upload/{}", base_url, pod),
-            format!("Upload pod {}", pod),
+            format!("{base_url}/colony-0/jobs/cache/upload/{pod}"),
+            format!("Upload pod {pod}"),
         )
     } else {
         println!("{}", "⬆️ Starting upload all...".cyan());
         (
-            format!("{}/colony-0/jobs/cache/upload", base_url),
+            format!("{base_url}/colony-0/jobs/cache/upload"),
             "Upload all".to_string(),
         )
     };
 
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .header("Content-Type", "application/json")
         .send()
         .await?;
@@ -1035,7 +1033,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/colony-0/jobs/search", base_url))
+                .post(format!("{base_url}/colony-0/jobs/search"))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1075,7 +1073,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/colony-0/jobs/search", base_url))
+                .post(format!("{base_url}/colony-0/jobs/search"))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1115,7 +1113,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/colony-0/jobs/search", base_url))
+                .post(format!("{base_url}/colony-0/jobs/search"))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1155,7 +1153,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/colony-0/jobs/search", base_url))
+                .post(format!("{base_url}/colony-0/jobs/search"))
                 .header("Content-Type", "application/json")
                 .json(&search_payload)
                 .send()
@@ -1184,7 +1182,7 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
 
             // Use asynchronous job-based search endpoint (public)
             let response = client
-                .post(&format!("{}/colony-0/jobs/search/subject/{}", base_url, subject))
+                .post(format!("{base_url}/colony-0/jobs/search/subject/{subject}"))
                 .header("Content-Type", "application/json")
                 .send()
                 .await?;
@@ -1222,8 +1220,8 @@ async fn handle_pods(config: &Config) -> anyhow::Result<()> {
     let base_url = config.base_url();
 
     let response = client
-        .get(&format!("{}/colony-0/pods", base_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .get(format!("{base_url}/colony-0/pods"))
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await?;
 
@@ -1255,8 +1253,8 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             };
 
             let response = client
-                .post(&format!("{}/colony-0/pods", base_url))
-                .header("Authorization", format!("Bearer {}", token))
+                .post(format!("{base_url}/colony-0/pods"))
+                .header("Authorization", format!("Bearer {token}"))
                 .header("Content-Type", "application/json")
                 .json(&pod_request)
                 .send()
@@ -1286,8 +1284,8 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
             };
 
             let response = client
-                .post(&format!("{}/colony-0/pods/{}/pod_ref", base_url, pod))
-                .header("Authorization", format!("Bearer {}", token))
+                .post(format!("{base_url}/colony-0/pods/{pod}/pod_ref"))
+                .header("Authorization", format!("Bearer {token}"))
                 .header("Content-Type", "application/json")
                 .json(&ref_request)
                 .send()
@@ -1323,8 +1321,8 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
             println!("{} {}", "🗑️ Removing pod:".cyan(), pod_address.yellow());
 
             let response = client
-                .delete(&format!("{}/colony-0/pods/{}", base_url, pod_address))
-                .header("Authorization", format!("Bearer {}", token))
+                .delete(format!("{base_url}/colony-0/pods/{pod_address}"))
+                .header("Authorization", format!("Bearer {token}"))
                 .send()
                 .await?;
 
@@ -1346,8 +1344,8 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
             };
 
             let response = client
-                .delete(&format!("{}/colony-0/pods/{}/pod_ref", base_url, pod))
-                .header("Authorization", format!("Bearer {}", token))
+                .delete(format!("{base_url}/colony-0/pods/{pod}/pod_ref"))
+                .header("Authorization", format!("Bearer {token}"))
                 .header("Content-Type", "application/json")
                 .json(&ref_request)
                 .send()
@@ -1388,8 +1386,8 @@ async fn handle_rename(config: &Config, matches: &ArgMatches) -> anyhow::Result<
             };
 
             let response = client
-                .post(&format!("{}/colony-0/pods/{}", base_url, pod_address))
-                .header("Authorization", format!("Bearer {}", token))
+                .post(format!("{base_url}/colony-0/pods/{pod_address}"))
+                .header("Authorization", format!("Bearer {token}"))
                 .header("Content-Type", "application/json")
                 .json(&rename_request)
                 .send()
@@ -1438,8 +1436,8 @@ async fn handle_put(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
     let base_url = config.base_url();
 
     let response = client
-        .put(&format!("{}/colony-0/pods/{}/{}", base_url, pod, subject))
-        .header("Authorization", format!("Bearer {}", token))
+        .put(format!("{base_url}/colony-0/pods/{pod}/{subject}"))
+        .header("Authorization", format!("Bearer {token}"))
         .header("Content-Type", "application/json")
         .json(&data)
         .send()

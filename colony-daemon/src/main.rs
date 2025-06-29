@@ -1024,7 +1024,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Generate new mnemonic using BIP39
             let new_mnemonic = Mnemonic::generate(12)
                 .map_err(|e| format!("Failed to generate BIP39 mnemonic: {e}"))?;
-            println!("Generated BIP39 12-word mnemonic: {}", new_mnemonic);
+            println!("Generated BIP39 12-word mnemonic: {new_mnemonic}");
             new_mnemonic.to_string()
         } else {
             Input::<String>::new()
@@ -1832,7 +1832,7 @@ async fn start_search_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_clone)), Some(0.1)).await;
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {query_clone}")), Some(0.1)).await;
 
                 match state_clone.pod_service.search(query_clone).await {
                     Ok(response) => {
