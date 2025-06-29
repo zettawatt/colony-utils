@@ -51,9 +51,7 @@ Creates a JWT token with password verification.
 HTTP 401 Unauthorized
 ```
 
-#### `POST /auth/token/legacy` (Legacy - No Password)
-Creates a JWT token without password verification (for backward compatibility).
-**Note:** Tokens from this endpoint cannot access protected resources.
+
 
 ### Protected Endpoints
 All API endpoints under `/api/v1/` require:
@@ -116,7 +114,6 @@ All PodManager operations that call `KeyStore::to_file()` now:
 ### Token Security
 - Tokens expire after 10 minutes
 - Tokens are signed with the keystore password
-- Legacy tokens without password verification are rejected
 
 ## Testing
 

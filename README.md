@@ -401,12 +401,7 @@ curl -X POST http://localhost:3000/api/v1/pods \
 - **🔒 Protected Endpoints**: Require valid JWT token with password verification
   - Pod creation/management, data storage, upload operations, listing pods
 
-#### Legacy Support
 
-For backward compatibility, a legacy token endpoint is available:
-- `POST /auth/token/legacy` - Creates tokens without password verification
-- Legacy tokens cannot access protected endpoints
-- Use only for testing or read-only operations
 
 ## 🔧 Development
 
@@ -479,8 +474,7 @@ curl -X POST http://localhost:3000/auth/token \
 # Check if you're using the correct keystore password
 # The daemon will return 401 Unauthorized for incorrect passwords
 
-# For testing only, use legacy token (no password required)
-curl -X POST http://localhost:3000/auth/token/legacy
+
 ```
 
 **Network Issues:**

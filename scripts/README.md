@@ -127,4 +127,4 @@ Response:
 - The script uses the actual keystore password for authentication
 - Tokens expire after 10 minutes for security
 - Protected endpoints require password-verified tokens
-- The legacy endpoint (`/auth/token/legacy`) creates tokens without password verification that cannot access protected resources
+

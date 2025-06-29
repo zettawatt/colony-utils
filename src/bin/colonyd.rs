@@ -1386,7 +1386,6 @@ fn create_router(state: AppState) -> Router {
         .route("/colony-0/search", get(search))
         .route("/colony-0/search/subject/{subject}", get(get_subject_data))
         .route("/colony-auth/token", post(create_token))
-        .route("/colony-auth/token/legacy", post(create_token_legacy))
         .route("/colony-health", get(health_check));
 
     // Protected routes (authentication required)
@@ -1505,38 +1504,7 @@ async fn create_token(
     }
 }
 
-// Legacy endpoint for backward compatibility (without password verification)
-#[instrument(skip(state))]
-async fn create_token_legacy(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
-    warn!("Legacy token endpoint used - password verification bypassed");
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as usize;
-
-    let claims = Claims {
-        sub: "colony-daemon".to_string(),
-        exp: now + 600, // 10 minutes
-        iat: now,
-        password_verified: false, // No password verification for legacy endpoint
-    };
-
-    match encode(&Header::default(), &claims, &state.encoding_key) {
-        Ok(token) => {
-            info!("Legacy JWT token created successfully (no password verification)");
-            Ok(Json(serde_json::json!({
-                "token": token,
-                "expires_in": 600,
-                "token_type": "Bearer"
-            })))
-        }
-        Err(err) => {
-            error!("Failed to create JWT token: {}", err);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
-}
 
 #[instrument]
 async fn health_check() -> Json<HealthResponse> {
