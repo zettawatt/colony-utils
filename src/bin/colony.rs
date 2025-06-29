@@ -1322,9 +1322,79 @@ async fn handle_pods(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
 }
 
 fn print_pods_table(value: &Value) {
-    // Try to parse as array of pods first
-    if let Some(pods_array) = value.as_array() {
-        if pods_array.is_empty() {
+    // Check if this is a SPARQL response format
+    let bindings_array = if let Some(results) = value.get("results") {
+        if let Some(bindings) = results.get("bindings") {
+            bindings.as_array()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(bindings_array) = bindings_array {
+        if bindings_array.is_empty() {
+            println!("{}", "📦 No pods found".yellow());
+            return;
+        }
+
+        // Group bindings by pod address to collect metadata for each pod
+        let mut pods = std::collections::HashMap::new();
+
+        for binding in bindings_array {
+            // Extract pod address from 'graph' field (this represents the pod)
+            let pod_address = if let Some(graph_obj) = binding.get("graph") {
+                if let Some(graph_value) = graph_obj.get("value") {
+                    if let Some(graph_str) = graph_value.as_str() {
+                        // Extract the address part from ant:// URIs
+                        if graph_str.starts_with("ant://") {
+                            graph_str.strip_prefix("ant://").unwrap_or(graph_str).to_string()
+                        } else {
+                            graph_str.to_string()
+                        }
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            // Extract predicate and object
+            let predicate = binding.get("predicate")
+                .and_then(|p| p.get("value"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let object = binding.get("object")
+                .and_then(|o| o.get("value"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            // Initialize pod entry if not exists
+            let pod_entry = pods.entry(pod_address.clone()).or_insert_with(|| {
+                std::collections::HashMap::from([
+                    ("address".to_string(), pod_address.clone()),
+                    ("name".to_string(), "POD REFERENCE".to_string()),
+                    ("modified".to_string(), "".to_string()),
+                ])
+            });
+
+            // Update pod metadata based on predicate
+            match predicate {
+                "http://schema.org/name" => {
+                    pod_entry.insert("name".to_string(), object.to_string());
+                }
+                "ant://colonylib/v1/modified" => {
+                    pod_entry.insert("modified".to_string(), object.to_string());
+                }
+                _ => {} // Ignore other predicates for now
+            }
+        }
+
+        if pods.is_empty() {
             println!("{}", "📦 No pods found".yellow());
             return;
         }
@@ -1334,18 +1404,13 @@ fn print_pods_table(value: &Value) {
             "{}",
             format!("{:<30} {:<96} {:<30}", "Pod Name", "Address", "Modified").cyan().bold()
         );
-        println!("{}", "─".repeat(154).cyan());
+        println!("{}", "─".repeat(156).cyan());
 
-        for pod in pods_array {
-            let name = pod.get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown");
-            let address = pod.get("address")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown");
-            let timestamp = pod.get("timestamp")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown");
+        for pod_data in pods.values() {
+            let unknown = "Unknown".to_string();
+            let name = pod_data.get("name").unwrap_or(&unknown);
+            let address = pod_data.get("address").unwrap_or(&unknown);
+            let modified = pod_data.get("modified").unwrap_or(&unknown);
 
             // Truncate long values for table display
             let name_display = if name.len() > 28 {
@@ -1353,26 +1418,22 @@ fn print_pods_table(value: &Value) {
             } else {
                 name.to_string()
             };
-            let addr_display = if address.len() > 94 {
-                format!("{}...", &address[..91])
+            let addr_display =  address.to_string();
+            let modified_display = if modified.len() > 28 {
+                format!("{}...", &modified[..25])
             } else {
-                address.to_string()
-            };
-            let time_display = if timestamp.len() > 28 {
-                format!("{}...", &timestamp[..25])
-            } else {
-                timestamp.to_string()
+                modified.to_string()
             };
 
             println!(
                 "{:<30} {:<96} {:<30}",
                 name_display.green(),
                 addr_display.blue(),
-                time_display.white()
+                modified_display.white()
             );
         }
     } else {
-        // Fallback: display as JSON if not an array
+        // Fallback: display as JSON if not SPARQL format
         println!("{}", "⚠️  Unexpected response format, displaying as JSON:".yellow());
         print_json_pretty(value);
     }
