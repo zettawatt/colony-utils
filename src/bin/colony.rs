@@ -678,10 +678,10 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let app = Command::new("colony-cli")
+    let app = Command::new("colony")
         .version("0.2.3")
         .author("Chuck McClish")
-        .about("A colonylib CLI for interacting with the colony-daemon")
+        .about("A colonylib CLI for interacting with the colonyd daemon")
         .arg(
             Arg::new("server")
                 .short('s')
@@ -1332,9 +1332,9 @@ fn print_pods_table(value: &Value) {
         println!("\n{}", "📦 Local Pods:".cyan().bold());
         println!(
             "{}",
-            format!("{:<30} {:<50} {:<20} {:<20}", "Pod Name", "Address", "Created", "Modified").cyan().bold()
+            format!("{:<30} {:<96} {:<30}", "Pod Name", "Address", "Modified").cyan().bold()
         );
-        println!("{}", "─".repeat(120).cyan());
+        println!("{}", "─".repeat(154).cyan());
 
         for pod in pods_array {
             let name = pod.get("name")
@@ -1353,23 +1353,22 @@ fn print_pods_table(value: &Value) {
             } else {
                 name.to_string()
             };
-            let addr_display = if address.len() > 48 {
-                format!("{}...", &address[..45])
+            let addr_display = if address.len() > 94 {
+                format!("{}...", &address[..91])
             } else {
                 address.to_string()
             };
-            let time_display = if timestamp.len() > 18 {
-                format!("{}...", &timestamp[..15])
+            let time_display = if timestamp.len() > 28 {
+                format!("{}...", &timestamp[..25])
             } else {
                 timestamp.to_string()
             };
 
             println!(
-                "{:<30} {:<50} {:<20} {:<20}",
+                "{:<30} {:<96} {:<30}",
                 name_display.green(),
                 addr_display.blue(),
-                time_display.white(),
-                time_display.white() // Using same timestamp for both created and modified for now
+                time_display.white()
             );
         }
     } else {
