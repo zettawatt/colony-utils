@@ -826,7 +826,16 @@ async fn main() -> anyhow::Result<()> {
                         ),
                 ),
         )
-        .subcommand(Command::new("pods").about("📦 List all pods"))
+        .subcommand(
+            Command::new("pods")
+                .about("📦 List all pods")
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .help("Display raw JSON output instead of formatted table")
+                        .action(clap::ArgAction::SetTrue),
+                ),
+        )
         .subcommand(
             Command::new("add")
                 .about("➕ Add operations")
@@ -944,8 +953,8 @@ async fn main() -> anyhow::Result<()> {
         Some(("search", sub_matches)) => {
             handle_search(&config, sub_matches).await?;
         }
-        Some(("pods", _)) => {
-            handle_pods(&config).await?;
+        Some(("pods", sub_matches)) => {
+            handle_pods(&config, sub_matches).await?;
         }
         Some(("add", sub_matches)) => {
             handle_add(&config, sub_matches).await?;
@@ -1281,12 +1290,13 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
     Ok(())
 }
 
-async fn handle_pods(config: &Config) -> anyhow::Result<()> {
+async fn handle_pods(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
     println!("{}", "📦 Listing pods...".cyan());
 
     let token = get_jwt_token(config).await?;
     let client = Client::new();
     let base_url = config.base_url();
+    let json = matches.get_flag("json");
 
     let response = client
         .get(format!("{base_url}/colony-0/pods"))
@@ -1296,8 +1306,12 @@ async fn handle_pods(config: &Config) -> anyhow::Result<()> {
 
     if response.status().is_success() {
         let result: Value = response.json().await?;
-        println!("\n{}", "✅ Found local pod information!".green().bold());
-        print_json_pretty(&result);
+        if json {
+            print_json_pretty(&result);
+        } else {
+            println!("\n{}", "✅ Found local pod information!".green().bold());
+            print_pods_table(&result);
+        }
     } else {
         let error_text = response.text().await?;
         println!("{} {}", "❌ Failed to list pods:".red(), error_text);
@@ -1305,6 +1319,64 @@ async fn handle_pods(config: &Config) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_pods_table(value: &Value) {
+    // Try to parse as array of pods first
+    if let Some(pods_array) = value.as_array() {
+        if pods_array.is_empty() {
+            println!("{}", "📦 No pods found".yellow());
+            return;
+        }
+
+        println!("\n{}", "📦 Local Pods:".cyan().bold());
+        println!(
+            "{}",
+            format!("{:<30} {:<50} {:<20} {:<20}", "Pod Name", "Address", "Created", "Modified").cyan().bold()
+        );
+        println!("{}", "─".repeat(120).cyan());
+
+        for pod in pods_array {
+            let name = pod.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let address = pod.get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let timestamp = pod.get("timestamp")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+
+            // Truncate long values for table display
+            let name_display = if name.len() > 28 {
+                format!("{}...", &name[..25])
+            } else {
+                name.to_string()
+            };
+            let addr_display = if address.len() > 48 {
+                format!("{}...", &address[..45])
+            } else {
+                address.to_string()
+            };
+            let time_display = if timestamp.len() > 18 {
+                format!("{}...", &timestamp[..15])
+            } else {
+                timestamp.to_string()
+            };
+
+            println!(
+                "{:<30} {:<50} {:<20} {:<20}",
+                name_display.green(),
+                addr_display.blue(),
+                time_display.white(),
+                time_display.white() // Using same timestamp for both created and modified for now
+            );
+        }
+    } else {
+        // Fallback: display as JSON if not an array
+        println!("{}", "⚠️  Unexpected response format, displaying as JSON:".yellow());
+        print_json_pretty(value);
+    }
 }
 
 async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
