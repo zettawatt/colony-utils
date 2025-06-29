@@ -8,11 +8,9 @@ use axum::{
     Router,
 };
 use bip39::Mnemonic;
-use chrono;
 use clap::{Arg, Command};
 use colonylib::{KeyStore, PodManager, DataStore, Graph};
 use dialoguer::{Input, Password, Confirm};
-use dirs;
 use indicatif::{ProgressBar, ProgressStyle};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -325,11 +323,11 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.refresh_cache().await
-                .map_err(|e| format!("Failed to refresh cache: {}", e))?;
+                .map_err(|e| format!("Failed to refresh cache: {e}"))?;
 
             Ok(())
         }.await;
@@ -369,11 +367,11 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.refresh_ref(depth).await
-                .map_err(|e| format!("Failed to refresh pod references: {}", e))?;
+                .map_err(|e| format!("Failed to refresh pod references: {e}"))?;
 
             Ok(())
         }.await;
@@ -413,15 +411,15 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             let (pod_address, _pod_data) = podman.add_pod(&request.name).await
-                .map_err(|e| format!("Failed to add pod: {}", e))?;
+                .map_err(|e| format!("Failed to add pod: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+            KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(pod_address)
         }.await;
@@ -461,7 +459,7 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.upload_pod(&request.address).await
@@ -505,11 +503,11 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.upload_all().await
-                .map_err(|e| format!("Failed to upload all pods: {}", e))?;
+                .map_err(|e| format!("Failed to upload all pods: {e}"))?;
 
             Ok(())
         }.await;
@@ -548,15 +546,15 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             let subject_data = podman.get_subject_data(address).await
-                .map_err(|e| format!("Failed to get subject data: {}", e))?;
+                .map_err(|e| format!("Failed to get subject data: {e}"))?;
 
             // Parse the subject data string as JSON
             serde_json::from_str(&subject_data)
-                .map_err(|e| format!("Failed to parse subject data as JSON: {}", e))
+                .map_err(|e| format!("Failed to parse subject data as JSON: {e}"))
         }.await;
 
         // Always restore components, regardless of success or failure
@@ -590,19 +588,19 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Convert the JSON data to string for PodManager
             let data_string = serde_json::to_string(&data)
-                .map_err(|e| format!("Failed to serialize data: {}", e))?;
+                .map_err(|e| format!("Failed to serialize data: {e}"))?;
 
             // Use the PodManager
             podman.put_subject_data(pod_address, subject, &data_string).await
-                .map_err(|e| format!("Failed to put subject data: {}", e))?;
+                .map_err(|e| format!("Failed to put subject data: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+            KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
         }.await;
@@ -638,15 +636,15 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.add_pod_ref(id, &request.pod_ref).await
-                .map_err(|e| format!("Failed to add pod reference: {}", e))?;
+                .map_err(|e| format!("Failed to add pod reference: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+            KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
         }.await;
@@ -682,11 +680,11 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.remove_pod_ref(id, &request.pod_ref).await
-                .map_err(|e| format!("Failed to remove pod reference: {}", e))?;
+                .map_err(|e| format!("Failed to remove pod reference: {e}"))?;
 
             Ok(())
         }.await;
@@ -722,11 +720,11 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             let results = podman.search(query.clone()).await
-                .map_err(|e| format!("Failed to search: {}", e))?;
+                .map_err(|e| format!("Failed to search: {e}"))?;
 
             Ok(results)
         }.await;
@@ -762,11 +760,11 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager to list pods
             let results = podman.list_my_pods()
-                .map_err(|e| format!("Failed to list pods: {}", e))?;
+                .map_err(|e| format!("Failed to list pods: {e}"))?;
 
             Ok(results)
         }.await;
@@ -802,15 +800,15 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.remove_pod(pod_address).await
-                .map_err(|e| format!("Failed to remove pod: {}", e))?;
+                .map_err(|e| format!("Failed to remove pod: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+            KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
         }.await;
@@ -846,15 +844,15 @@ impl PodService {
                 &mut data_store,
                 &mut keystore,
                 &mut graph
-            ).await.map_err(|e| format!("Failed to create PodManager: {}", e))?;
+            ).await.map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
             // Use the PodManager
             podman.rename_pod(pod_address, &request.name).await
-                .map_err(|e| format!("Failed to rename pod: {}", e))?;
+                .map_err(|e| format!("Failed to rename pod: {e}"))?;
 
             let key_store_file = podman.data_store.get_keystore_path();
             let mut file = std::fs::File::create(key_store_file).unwrap();
-            let _ = KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
+            KeyStore::to_file(&keystore, &mut file, keystore_password).unwrap();
 
             Ok(())
         }.await;
@@ -984,7 +982,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut data_store = if matches.get_one::<String>("data").is_none() {
         // Create a new DataStore instance with the DataStore::create method()
-        DataStore::create().map_err(|e| format!("Failed to create DataStore: {}", e))?
+        DataStore::create().map_err(|e| format!("Failed to create DataStore: {e}"))?
     } else {
         // Create a new DataStore instance with the DataStore::from_paths() method
         let pods_dir = data_dir.join("pods");
@@ -1000,7 +998,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             data_dir.clone(),
             pods_dir,
             downloads_dir,
-        ).map_err(|e| format!("Failed to create DataStore from paths: {}", e))?
+        ).map_err(|e| format!("Failed to create DataStore from paths: {e}"))?
     };
 
     pb.finish_with_message("DataStore setup complete");
@@ -1025,8 +1023,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mnemonic = if generate_new {
             // Generate new mnemonic using BIP39
             let new_mnemonic = Mnemonic::generate(12)
-                .map_err(|e| format!("Failed to generate BIP39 mnemonic: {}", e))?;
-            println!("Generated BIP39 12-word mnemonic: {}", new_mnemonic.to_string());
+                .map_err(|e| format!("Failed to generate BIP39 mnemonic: {e}"))?;
+            println!("Generated BIP39 12-word mnemonic: {}", new_mnemonic);
             new_mnemonic.to_string()
         } else {
             Input::<String>::new()
@@ -1036,7 +1034,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Create KeyStore from mnemonic
         let mut keystore = KeyStore::from_mnemonic(&mnemonic)
-            .map_err(|e| format!("Failed to create KeyStore from mnemonic: {}", e))?;
+            .map_err(|e| format!("Failed to create KeyStore from mnemonic: {e}"))?;
 
         // Prompt for Ethereum wallet private key
         let wallet_key = Input::<String>::new()
@@ -1050,29 +1048,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(secret_key) = std::env::var("SECRET_KEY") {
                 println!("No wallet key provided, using SECRET_KEY environment variable");
                 keystore.set_wallet_key(secret_key)
-                .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+                .map_err(|e| format!("Failed to set wallet key: {e}"))?;
             } else {
                 println!("No wallet key provided, using default local testnet key");
                 keystore.set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
-                .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+                .map_err(|e| format!("Failed to set wallet key: {e}"))?;
             }
         } else {
             keystore.set_wallet_key(wallet_key)
-            .map_err(|e| format!("Failed to set wallet key: {}", e))?;
+            .map_err(|e| format!("Failed to set wallet key: {e}"))?;
         }
 
         // Save KeyStore to file
         let mut file = fs::File::create(&keystore_path)
-            .map_err(|e| format!("Failed to create keystore file: {}", e))?;
+            .map_err(|e| format!("Failed to create keystore file: {e}"))?;
         keystore.to_file(&mut file, &keystore_password)
-            .map_err(|e| format!("Failed to save KeyStore: {}", e))?;
+            .map_err(|e| format!("Failed to save KeyStore: {e}"))?;
 
         keystore
     } else {
         // Load existing KeyStore
         loop {
             let mut file = fs::File::open(&keystore_path)
-                .map_err(|e| format!("Failed to open keystore file: {}", e))?;
+                .map_err(|e| format!("Failed to open keystore file: {e}"))?;
             match KeyStore::from_file(&mut file, &keystore_password) {
                 Ok(keystore) => break keystore,
                 Err(_) => {
@@ -1102,7 +1100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph_path = data_store.get_graph_path();
     let mut graph = Graph::open(&graph_path)
-        .map_err(|e| format!("Failed to open Graph: {}", e))?;
+        .map_err(|e| format!("Failed to open Graph: {e}"))?;
 
     pb.finish_with_message("Graph setup complete");
     info!("Graph initialized at: {:?}", graph_path);
@@ -1122,7 +1120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let wallet_key = keystore.get_wallet_key();
     let wallet = Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key)
-        .map_err(|e| format!("Failed to create wallet: {}", e))?;
+        .map_err(|e| format!("Failed to create wallet: {e}"))?;
 
     pb.finish_with_message("Connected to Autonomi network");
     info!("Connected to {} network", network);
@@ -1140,7 +1138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test PodManager creation to ensure components are compatible
     let _pod_manager = PodManager::new(client.clone(), &wallet, &mut data_store, &mut keystore, &mut graph).await
-        .map_err(|e| format!("Failed to create PodManager: {}", e))?;
+        .map_err(|e| format!("Failed to create PodManager: {e}"))?;
 
     pb.finish_with_message("PodManager setup complete");
     info!("PodManager initialized successfully");
@@ -1177,16 +1175,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = create_router(app_state);
 
     // Create socket address
-    let addr = format!("{}:{}", listen_ip, port);
+    let addr = format!("{listen_ip}:{port}");
     let listener = TcpListener::bind(&addr).await
-        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
+        .map_err(|e| format!("Failed to bind to {addr}: {e}"))?;
 
     pb.finish_with_message("REST server started");
     info!("Server listening on {}", addr);
 
     // Start the server
     axum::serve(listener, app).await
-        .map_err(|e| format!("Server error: {}", e))?;
+        .map_err(|e| format!("Server error: {e}"))?;
 
     Ok(())
 
@@ -1610,7 +1608,7 @@ fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::er
         } else if let Some(file_path) = pass_spec.strip_prefix("file:") {
             fs::read_to_string(file_path)
                 .map(|s| s.trim().to_string())
-                .map_err(|e| format!("Failed to read password file: {}", e).into())
+                .map_err(|e| format!("Failed to read password file: {e}").into())
         } else {
             Err("Invalid password format. Use 'pass:<password>' or 'file:<path>'".into())
         }
@@ -1784,7 +1782,7 @@ async fn start_refresh_ref_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Starting refresh ref with depth {}", depth)), Some(0.1)).await;
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Starting refresh ref with depth {depth}")), Some(0.1)).await;
 
                 match state_clone.pod_service.refresh_ref(depth).await {
                     Ok(response) => {
@@ -1800,7 +1798,7 @@ async fn start_refresh_ref_job(
             Ok(Json(JobResponse {
                 job_id,
                 status: JobStatus::Pending,
-                message: format!("Refresh ref job started with depth {}", depth),
+                message: format!("Refresh ref job started with depth {depth}"),
                 timestamp: chrono::Utc::now().to_rfc3339(),
             }))
         }
@@ -1834,7 +1832,7 @@ async fn start_search_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_clone.to_string())), Some(0.1)).await;
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Searching for: {}", query_clone)), Some(0.1)).await;
 
                 match state_clone.pod_service.search(query_clone).await {
                     Ok(response) => {
@@ -1850,7 +1848,7 @@ async fn start_search_job(
             Ok(Json(JobResponse {
                 job_id,
                 status: JobStatus::Pending,
-                message: format!("Search job started for: {}", query),
+                message: format!("Search job started for: {query}"),
                 timestamp: chrono::Utc::now().to_rfc3339(),
             }))
         }
@@ -1883,7 +1881,7 @@ async fn start_get_subject_data_job(
 
             // Spawn background task
             tokio::spawn(async move {
-                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Getting subject data for: {}", subject_clone)), Some(0.1)).await;
+                state_clone.job_manager.update_job_status(&job_id_clone, JobStatus::Running, Some(format!("Getting subject data for: {subject_clone}")), Some(0.1)).await;
 
                 match state_clone.pod_service.get_subject_data(&subject_clone).await {
                     Ok(response) => {
@@ -1898,7 +1896,7 @@ async fn start_get_subject_data_job(
             Ok(Json(JobResponse {
                 job_id,
                 status: JobStatus::Pending,
-                message: format!("Get subject data job started for: {}", subject),
+                message: format!("Get subject data job started for: {subject}"),
                 timestamp: chrono::Utc::now().to_rfc3339(),
             }))
         }
@@ -1934,7 +1932,7 @@ async fn get_job_status(
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
                     error: "JOB_NOT_FOUND".to_string(),
-                    message: format!("Job with ID {} not found", job_id),
+                    message: format!("Job with ID {job_id} not found"),
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
             ))
@@ -1967,7 +1965,7 @@ async fn get_job_result(
                         StatusCode::ACCEPTED,
                         Json(ErrorResponse {
                             error: "JOB_NOT_COMPLETED".to_string(),
-                            message: format!("Job {} is not yet completed", job_id),
+                            message: format!("Job {job_id} is not yet completed"),
                             timestamp: chrono::Utc::now().to_rfc3339(),
                         }),
                     ))
@@ -1980,7 +1978,7 @@ async fn get_job_result(
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
                     error: "JOB_NOT_FOUND".to_string(),
-                    message: format!("Job with ID {} not found", job_id),
+                    message: format!("Job with ID {job_id} not found"),
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
             ))
