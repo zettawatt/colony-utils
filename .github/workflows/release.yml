@@ -53,36 +53,69 @@ jobs:
       - name: Publish to crates.io
         run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
 
+  build:
+    name: Build Binaries
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use_cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            use_cross: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+    runs-on: ${{ matrix.os }}
+    needs: [test, clippy, fmt]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      # Install cross-compilation tools (only for Linux)
+      - name: Install cross
+        if: matrix.use_cross
+        run: cargo install cross --version 0.2.5
+
+      # Build binaries
+      - name: Build binaries
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} --bin colonyd
+            cross build --release --target ${{ matrix.target }} --bin colony
+          else
+            cargo build --release --target ${{ matrix.target }} --bin colonyd
+            cargo build --release --target ${{ matrix.target }} --bin colony
+          fi
+        shell: bash
+
+      # Upload artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/colonyd*
+            target/${{ matrix.target }}/release/colony*
+
   release:
     name: Create Release and Upload Binaries
     runs-on: ubuntu-latest
-    needs: [test, clippy, fmt]
+    needs: [build]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
 
-      # Install cross-compilation tools
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      # Build for all targets
-      - name: Build Linux binary
-        run: |
-          cross build --release --target x86_64-unknown-linux-musl --bin colonyd
-          cross build --release --target x86_64-unknown-linux-musl --bin colony
-
-      # - name: Build macOS binary
-      #   run: |
-      #     cross build --release --target x86_64-apple-darwin --bin colonyd
-      #     cross build --release --target x86_64-apple-darwin --bin colony
-
-      - name: Build Windows binary
-        run: |
-          cross build --release --target x86_64-pc-windows-gnu --bin colonyd
-          cross build --release --target x86_64-pc-windows-gnu --bin colony
+      # Download all artifacts
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       # Prepare release assets
       - name: Prepare release assets
@@ -90,16 +123,16 @@ jobs:
           mkdir -p release-assets
 
           # Linux
-          cp target/x86_64-unknown-linux-musl/release/colonyd release-assets/colonyd-x86_64-unknown-linux-musl
-          cp target/x86_64-unknown-linux-musl/release/colony release-assets/colony-x86_64-unknown-linux-musl
+          cp artifacts/binaries-x86_64-unknown-linux-musl/colonyd release-assets/colonyd-x86_64-unknown-linux-musl
+          cp artifacts/binaries-x86_64-unknown-linux-musl/colony release-assets/colony-x86_64-unknown-linux-musl
 
-          # # macOS
-          # cp target/x86_64-apple-darwin/release/colonyd release-assets/colonyd-x86_64-apple-darwin
-          # cp target/x86_64-apple-darwin/release/colony release-assets/colony-x86_64-apple-darwin
+          # macOS
+          cp artifacts/binaries-x86_64-apple-darwin/colonyd release-assets/colonyd-x86_64-apple-darwin
+          cp artifacts/binaries-x86_64-apple-darwin/colony release-assets/colony-x86_64-apple-darwin
 
           # Windows
-          cp target/x86_64-pc-windows-gnu/release/colonyd.exe release-assets/colonyd-x86_64-pc-windows-gnu.exe
-          cp target/x86_64-pc-windows-gnu/release/colony.exe release-assets/colony-x86_64-pc-windows-gnu.exe
+          cp artifacts/binaries-x86_64-pc-windows-msvc/colonyd.exe release-assets/colonyd-x86_64-pc-windows-msvc.exe
+          cp artifacts/binaries-x86_64-pc-windows-msvc/colony.exe release-assets/colony-x86_64-pc-windows-msvc.exe
 
       # Create release and upload assets
       - name: Create Release
