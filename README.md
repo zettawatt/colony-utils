@@ -39,10 +39,25 @@ A user-friendly CLI tool for interacting with the colony-daemon.
 
 ### Installation
 
-There are 2 options: install from crates.io or build from source:
+There are 3 options: directly install binaries (linux only), install from crates.io, or build from source:
+
+#### From binaries (linux only)
+
+1. **Download the latest release:**
+   ```bash
+   wget https://github.com/zettawatt/colony-utils/releases/download/colony-daemon_v0.1.2/colony-daemon
+   wget https://github.com/zettawatt/colony-utils/releases/download/colony-daemon_v0.1.2/colony-cli
+   ```
+
+2. **Move the binaries to a directory in your PATH:**
+   ```bash
+   sudo mv target/release/colony-daemon /usr/local/bin/
+   sudo mv target/release/colony-cli /usr/local/bin/
+   ```
 
 #### From crates.io
 
+1. **Install using the cargo command:**
 ```bash
 cargo install colony-daemon colony-cli
 ```
