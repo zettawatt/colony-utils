@@ -679,7 +679,7 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony-cli")
-        .version("0.1.0")
+        .version("0.2.3")
         .author("Chuck McClish")
         .about("A colonylib CLI for interacting with the colony-daemon")
         .arg(

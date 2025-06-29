@@ -1,6 +1,6 @@
 [package]
 name = "colony-utils"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 authors = ["Chuck McClish"]
 description = "A collection of utilities for interacting with the colonylib metadata framework for the Autonomi decentralized network"

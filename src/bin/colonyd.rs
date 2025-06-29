@@ -1058,7 +1058,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse command line arguments
     let matches = Command::new("colony-daemon")
-        .version("0.1.1")
+        .version("0.2.3")
         .about("A server hosting a REST endpoint for interacting with colonylib")
         .arg(
             Arg::new("port")
