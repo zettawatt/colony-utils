@@ -49,10 +49,6 @@ There are 3 options: directly install binaries (linux only), install from crates
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-unknown-linux-musl
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-unknown-linux-musl
 
-   # Linux (ARM64)
-   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-aarch64-unknown-linux-musl
-   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-aarch64-unknown-linux-musl
-
    # macOS (Intel CPU - Older Macs)
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-apple-darwin
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-apple-darwin
