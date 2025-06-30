@@ -1550,8 +1550,6 @@ async fn create_token(
     }
 }
 
-
-
 #[instrument]
 async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {

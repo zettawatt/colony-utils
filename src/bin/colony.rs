@@ -827,14 +827,12 @@ async fn main() -> anyhow::Result<()> {
                 ),
         )
         .subcommand(
-            Command::new("pods")
-                .about("📦 List all pods")
-                .arg(
-                    Arg::new("json")
-                        .long("json")
-                        .help("Display raw JSON output instead of formatted table")
-                        .action(clap::ArgAction::SetTrue),
-                ),
+            Command::new("pods").about("📦 List all pods").arg(
+                Arg::new("json")
+                    .long("json")
+                    .help("Display raw JSON output instead of formatted table")
+                    .action(clap::ArgAction::SetTrue),
+            ),
         )
         .subcommand(
             Command::new("add")
@@ -1349,7 +1347,10 @@ fn print_pods_table(value: &Value) {
                     if let Some(graph_str) = graph_value.as_str() {
                         // Extract the address part from ant:// URIs
                         if graph_str.starts_with("ant://") {
-                            graph_str.strip_prefix("ant://").unwrap_or(graph_str).to_string()
+                            graph_str
+                                .strip_prefix("ant://")
+                                .unwrap_or(graph_str)
+                                .to_string()
                         } else {
                             graph_str.to_string()
                         }
@@ -1364,11 +1365,13 @@ fn print_pods_table(value: &Value) {
             };
 
             // Extract predicate and object
-            let predicate = binding.get("predicate")
+            let predicate = binding
+                .get("predicate")
                 .and_then(|p| p.get("value"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let object = binding.get("object")
+            let object = binding
+                .get("object")
                 .and_then(|o| o.get("value"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
@@ -1402,7 +1405,9 @@ fn print_pods_table(value: &Value) {
         println!("\n{}", "📦 Local Pods:".cyan().bold());
         println!(
             "{}",
-            format!("{:<30} {:<96} {:<30}", "Pod Name", "Address", "Modified").cyan().bold()
+            format!("{:<30} {:<96} {:<30}", "Pod Name", "Address", "Modified")
+                .cyan()
+                .bold()
         );
         println!("{}", "─".repeat(156).cyan());
 
@@ -1418,7 +1423,7 @@ fn print_pods_table(value: &Value) {
             } else {
                 name.to_string()
             };
-            let addr_display =  address.to_string();
+            let addr_display = address.to_string();
             let modified_display = if modified.len() > 28 {
                 format!("{}...", &modified[..25])
             } else {
@@ -1434,7 +1439,10 @@ fn print_pods_table(value: &Value) {
         }
     } else {
         // Fallback: display as JSON if not SPARQL format
-        println!("{}", "⚠️  Unexpected response format, displaying as JSON:".yellow());
+        println!(
+            "{}",
+            "⚠️  Unexpected response format, displaying as JSON:".yellow()
+        );
         print_json_pretty(value);
     }
 }
