@@ -1,0 +1,25 @@
+[build.env]
+passthrough = [
+    "CARGO_HOME",
+    "CARGO_TARGET_DIR",
+]
+
+[target.x86_64-pc-windows-gnu]
+image = "ghcr.io/cross-rs/x86_64-pc-windows-gnu:0.2.5"
+[target.x86_64-pc-windows-gnu.env]
+passthrough = [
+    "RUSTFLAGS"
+]
+
+[target.x86_64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:0.2.5"
+
+[target.aarch64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-musl:0.2.5"
+[target.aarch64-unknown-linux-musl.env]
+passthrough = [
+    "RUSTFLAGS"
+]
+
+[target.x86_64-apple-darwin]
+image = "ghcr.io/cross-rs/x86_64-apple-darwin:0.2.5"

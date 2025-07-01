@@ -74,9 +74,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             use_cross: true
-#          - os: ubuntu-latest
-#            target: aarch64-unknown-linux-musl
-#            use_cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
             use_cross: false
@@ -84,8 +84,8 @@ jobs:
             target: aarch64-apple-darwin
             use_cross: false
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            use_cross: false
+            target: x86_64-pc-windows-gnu
+            use_cross: true
     runs-on: ${{ matrix.os }}
     needs: [test, clippy, fmt]
     steps:
@@ -95,10 +95,17 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
-      # Install cross-compilation tools (only for Linux)
+      # Install cross-compilation tools
       - name: Install cross
         if: matrix.use_cross
         run: cargo install cross --version 0.2.5
+
+      # Setup Windows GNU toolchain
+      - name: Setup Windows GNU toolchain
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
 
       # Build binaries
       - name: Build binaries
@@ -111,6 +118,9 @@ jobs:
             cargo build --release --target ${{ matrix.target }} --bin colony
           fi
         shell: bash
+        env:
+          # Set RUSTFLAGS for static linking on musl and Windows GNU targets
+          RUSTFLAGS: ${{ matrix.target == 'aarch64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-gnu' && '-C link-args=-static-libgcc -static-libstdc++ -C target-feature=+crt-static' || '' }}
 
       # Upload artifacts
       - name: Upload artifacts
@@ -167,9 +177,9 @@ jobs:
           cp artifacts/binaries-x86_64-unknown-linux-musl/colonyd release-assets/colonyd-x86_64-unknown-linux-musl
           cp artifacts/binaries-x86_64-unknown-linux-musl/colony release-assets/colony-x86_64-unknown-linux-musl
 
-          # Linux ARM64 (Raspberry Pi, etc.) DOES NOT BUILD
-          #cp artifacts/binaries-aarch64-unknown-linux-musl/colonyd release-assets/colonyd-aarch64-unknown-linux-musl
-          #cp artifacts/binaries-aarch64-unknown-linux-musl/colony release-assets/colony-aarch64-unknown-linux-musl
+          # Linux ARM64 (Raspberry Pi, etc.)
+          cp artifacts/binaries-aarch64-unknown-linux-musl/colonyd release-assets/colonyd-aarch64-unknown-linux-musl
+          cp artifacts/binaries-aarch64-unknown-linux-musl/colony release-assets/colony-aarch64-unknown-linux-musl
 
           # macOS x86_64 (Intel)
           cp artifacts/binaries-x86_64-apple-darwin/colonyd release-assets/colonyd-x86_64-apple-darwin
@@ -180,8 +190,8 @@ jobs:
           cp artifacts/binaries-aarch64-apple-darwin/colony release-assets/colony-aarch64-apple-darwin
 
           # Windows x86_64
-          cp artifacts/binaries-x86_64-pc-windows-msvc/colonyd.exe release-assets/colonyd-x86_64-pc-windows-msvc.exe
-          cp artifacts/binaries-x86_64-pc-windows-msvc/colony.exe release-assets/colony-x86_64-pc-windows-msvc.exe
+          cp artifacts/binaries-x86_64-pc-windows-gnu/colonyd.exe release-assets/colonyd-x86_64-pc-windows-gnu.exe
+          cp artifacts/binaries-x86_64-pc-windows-gnu/colony.exe release-assets/colony-x86_64-pc-windows-gnu.exe
 
       # Create release and upload assets
       - name: Create Release
