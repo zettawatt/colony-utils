@@ -58,8 +58,10 @@ There are 3 options: directly install binaries (linux only), install from crates
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-aarch64-apple-darwin
 
    # Windows
-   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-pc-windows-gnu.exe
-   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-pc-windows-gnu.exe
+   # NOTE: Windows will complain about this binary being 'unsafe'. Microsoft wants developers to pay for a certificate.
+   # You can ignore this warning.
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-pc-windows-gnu.exe -outfile colonyd
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-pc-windows-gnu.exe -outfile colony
    ```
 
 2. **Make executable and move to PATH (Linux/macOS):**
