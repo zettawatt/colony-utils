@@ -1,9 +1,11 @@
 # Cross-compilation configuration
 
-# Windows GNU target - static linking to avoid VCRUNTIME140.dll dependency
+# Windows GNU target - static linking to avoid VCRUNTIME140.dll and libstdc++ dependencies
 [target.x86_64-pc-windows-gnu]
 rustflags = [
-    "-C", "target-feature=+crt-static"
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-static-libgcc",
+    "-C", "link-arg=-static-libstdc++"
 ]
 
 
