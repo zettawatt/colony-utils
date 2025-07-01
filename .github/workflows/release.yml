@@ -81,10 +81,9 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             use_cross: false
-          - os: windows-latest
+          - os: ubuntu-latest
             target: x86_64-pc-windows-gnu
-            use_cross: false
-            setup_target: true
+            use_cross: true
     runs-on: ${{ matrix.os }}
     needs: [test, clippy, fmt]
     steps:
@@ -101,16 +100,7 @@ jobs:
 
 
 
-      # Setup Windows GNU toolchain
-      - name: Setup Windows GNU toolchain
-        if: matrix.target == 'x86_64-pc-windows-gnu'
-        run: |
-          # Install MSYS2 and MinGW-w64
-          choco install msys2 -y
-          # Add MinGW-w64 to PATH and install target
-          echo "C:\msys64\mingw64\bin" >> $GITHUB_PATH
-          rustup target add x86_64-pc-windows-gnu
-        shell: pwsh
+
 
       # Build binaries
       - name: Build binaries
