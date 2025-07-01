@@ -15,10 +15,13 @@ passthrough = [
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:0.2.5"
 
 [target.aarch64-unknown-linux-musl]
-image = "ghcr.io/cross-rs/aarch64-unknown-linux-musl:0.2.5"
+# Use messense's image which is known to work better with ARM64 musl
+image = "messense/rust-musl-cross:aarch64-musl"
 [target.aarch64-unknown-linux-musl.env]
 passthrough = [
-    "RUSTFLAGS"
+    "RUSTFLAGS",
+    "CARGO_BUILD_TARGET_DIR",
+    "CARGO_NET_GIT_FETCH_WITH_CLI"
 ]
 
 [target.x86_64-apple-darwin]
