@@ -13,8 +13,14 @@ rustflags = [
     "-C", "target-feature=+crt-static"
 ]
 
-# Set environment variables for ARM64 cross-compilation
+# Set environment variables for cross-compilation
 [env]
+# x86_64 musl target - use system gcc/g++ with musl
+CC_x86_64_unknown_linux_musl = "gcc"
+CXX_x86_64_unknown_linux_musl = "g++"
+AR_x86_64_unknown_linux_musl = "ar"
+
+# ARM64 musl target
 CC_aarch64_unknown_linux_musl = "aarch64-linux-gnu-gcc"
 CXX_aarch64_unknown_linux_musl = "aarch64-linux-gnu-g++"
 AR_aarch64_unknown_linux_musl = "aarch64-linux-gnu-ar"

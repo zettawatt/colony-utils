@@ -102,7 +102,7 @@ jobs:
         if: contains(matrix.target, 'musl') && runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools musl-dev
+          sudo apt-get install -y musl-tools musl-dev gcc-multilib g++-multilib
 
       # Setup ARM64 target for native compilation
       - name: Setup ARM64 target
