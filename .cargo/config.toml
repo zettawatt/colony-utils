@@ -6,9 +6,7 @@ rustflags = [
     "-C", "target-feature=+crt-static"
 ]
 
-# ARM64 Linux glibc - much more reliable than musl for complex C++ dependencies
-[target.aarch64-unknown-linux-gnu]
-# No special configuration needed - cross-rs handles this well
+
 
 
 
