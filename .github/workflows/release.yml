@@ -82,9 +82,8 @@ jobs:
             target: aarch64-apple-darwin
             use_cross: false
           - os: windows-latest
-            target: x86_64-pc-windows-gnu
+            target: x86_64-pc-windows-msvc
             use_cross: false
-            setup_target: true
     runs-on: ${{ matrix.os }}
     needs: [test, clippy, fmt]
     steps:
@@ -99,23 +98,7 @@ jobs:
         if: matrix.use_cross
         run: cargo install cross --version 0.2.5
 
-      # Setup Windows GNU toolchain with static libraries
-      - name: Setup Windows GNU toolchain
-        if: matrix.target == 'x86_64-pc-windows-gnu'
-        run: |
-          # Install MSYS2 which includes MinGW-w64 with static libraries
-          choco install msys2 -y
 
-          # Update MSYS2 and install the full MinGW-w64 toolchain
-          C:\msys64\usr\bin\bash.exe -lc "pacman -Syu --noconfirm"
-          C:\msys64\usr\bin\bash.exe -lc "pacman -S --noconfirm mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake"
-
-          # Add MinGW-w64 to PATH
-          echo "C:\msys64\mingw64\bin" >> $GITHUB_PATH
-
-          # Add Rust target
-          rustup target add x86_64-pc-windows-gnu
-        shell: pwsh
 
 
 
@@ -133,8 +116,8 @@ jobs:
           fi
         shell: bash
         env:
-          # Set RUSTFLAGS for static linking on musl and Windows GNU targets
-          RUSTFLAGS: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-gnu' && '-C target-feature=+crt-static -C link-arg=-static-libgcc -C link-arg=-static-libstdc++' || '' }}
+          # Set RUSTFLAGS for static linking on musl targets
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || '' }}
           # Additional environment variables
           CARGO_BUILD_TARGET_DIR: ${{ github.workspace }}/target
 
@@ -204,8 +187,8 @@ jobs:
           cp artifacts/binaries-aarch64-apple-darwin/colony release-assets/colony-aarch64-apple-darwin
 
           # Windows x86_64
-          cp artifacts/binaries-x86_64-pc-windows-gnu/colonyd.exe release-assets/colonyd-x86_64-pc-windows-gnu.exe
-          cp artifacts/binaries-x86_64-pc-windows-gnu/colony.exe release-assets/colony-x86_64-pc-windows-gnu.exe
+          cp artifacts/binaries-x86_64-pc-windows-msvc/colonyd.exe release-assets/colonyd-x86_64-pc-windows-msvc.exe
+          cp artifacts/binaries-x86_64-pc-windows-msvc/colony.exe release-assets/colony-x86_64-pc-windows-msvc.exe
 
       # Create release and upload assets
       - name: Create Release
