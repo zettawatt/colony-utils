@@ -102,7 +102,12 @@ jobs:
         if: contains(matrix.target, 'musl') && runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools musl-dev gcc-multilib g++-multilib
+          sudo apt-get install -y musl-tools musl-dev
+          # Install a musl-compatible C++ toolchain
+          wget -q https://musl.cc/x86_64-linux-musl-cross.tgz
+          tar -xzf x86_64-linux-musl-cross.tgz
+          sudo mv x86_64-linux-musl-cross /opt/
+          echo "/opt/x86_64-linux-musl-cross/bin" >> $GITHUB_PATH
 
       # Setup ARM64 target for native compilation
       - name: Setup ARM64 target
