@@ -13,6 +13,12 @@ rustflags = [
     "-C", "target-feature=+crt-static"
 ]
 
+# Set environment variables for ARM64 cross-compilation
+[env]
+CC_aarch64_unknown_linux_musl = "aarch64-linux-gnu-gcc"
+CXX_aarch64_unknown_linux_musl = "aarch64-linux-gnu-g++"
+AR_aarch64_unknown_linux_musl = "aarch64-linux-gnu-ar"
+
 # x86_64 Linux musl - ensure static linking
 [target.x86_64-unknown-linux-musl]
 rustflags = [
