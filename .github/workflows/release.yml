@@ -73,10 +73,11 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            use_cross: true
+            use_cross: false
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            use_cross: true
+            use_cross: false
+            setup_target: true
           - os: macos-latest
             target: x86_64-apple-darwin
             use_cross: false
@@ -85,7 +86,8 @@ jobs:
             use_cross: false
           - os: windows-latest
             target: x86_64-pc-windows-gnu
-            use_cross: true
+            use_cross: false
+            setup_target: true
     runs-on: ${{ matrix.os }}
     needs: [test, clippy, fmt]
     steps:
@@ -95,38 +97,45 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
-      # Install cross-compilation tools
-      - name: Install cross
-        if: matrix.use_cross
+      # Setup musl tools for native Linux builds
+      - name: Setup musl tools
+        if: contains(matrix.target, 'musl') && runner.os == 'Linux'
         run: |
-          # Use latest cross version for better compatibility
-          cargo install cross --git https://github.com/cross-rs/cross --rev main
+          sudo apt-get update
+          sudo apt-get install -y musl-tools musl-dev
+
+      # Setup ARM64 target for native compilation
+      - name: Setup ARM64 target
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          rustup target add aarch64-unknown-linux-musl
 
       # Setup Windows GNU toolchain
       - name: Setup Windows GNU toolchain
         if: matrix.target == 'x86_64-pc-windows-gnu'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64
+          # Install MSYS2 and MinGW-w64
+          choco install msys2 -y
+          # Add MinGW-w64 to PATH and install target
+          echo "C:\msys64\mingw64\bin" >> $GITHUB_PATH
+          rustup target add x86_64-pc-windows-gnu
+        shell: pwsh
 
       # Build binaries
       - name: Build binaries
         run: |
-          if [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} --bin colonyd
-            cross build --release --target ${{ matrix.target }} --bin colony
-          else
-            cargo build --release --target ${{ matrix.target }} --bin colonyd
-            cargo build --release --target ${{ matrix.target }} --bin colony
-          fi
+          cargo build --release --target ${{ matrix.target }} --bin colonyd
+          cargo build --release --target ${{ matrix.target }} --bin colony
         shell: bash
         env:
           # Set RUSTFLAGS for static linking on musl and Windows GNU targets
-          RUSTFLAGS: ${{ matrix.target == 'aarch64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-gnu' && '-C link-args=-static-libgcc -static-libstdc++ -C target-feature=+crt-static' || '' }}
-          # Additional environment variables for cross-compilation
+          RUSTFLAGS: ${{ matrix.target == 'aarch64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-gnu' && '-C target-feature=+crt-static' || '' }}
+          # Set linker for ARM64 musl when building natively
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'aarch64-linux-gnu-gcc' || '' }}
+          # Additional environment variables
           CARGO_BUILD_TARGET_DIR: ${{ github.workspace }}/target
-          # Help with git operations in cross containers
-          CARGO_NET_GIT_FETCH_WITH_CLI: true
 
       # Upload artifacts
       - name: Upload artifacts

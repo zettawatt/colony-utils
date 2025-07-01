@@ -2,14 +2,13 @@
 
 # Windows GNU target - static linking to avoid VCRUNTIME140.dll dependency
 [target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc"
 rustflags = [
-    "-C", "link-args=-static-libgcc -static-libstdc++",
     "-C", "target-feature=+crt-static"
 ]
 
 # ARM64 Linux musl - static linking for better compatibility
 [target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-gnu-gcc"
 rustflags = [
     "-C", "target-feature=+crt-static"
 ]
