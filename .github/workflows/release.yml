@@ -75,7 +75,7 @@ jobs:
             target: x86_64-unknown-linux-musl
             use_cross: true
           - os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
+            target: aarch64-unknown-linux-gnu
             use_cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -127,9 +127,7 @@ jobs:
         shell: bash
         env:
           # Set RUSTFLAGS for static linking on musl and Windows GNU targets
-          RUSTFLAGS: ${{ matrix.target == 'aarch64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-gnu' && '-C target-feature=+crt-static' || '' }}
-          # Set linker for ARM64 musl when building natively
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'aarch64-linux-gnu-gcc' || '' }}
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-gnu' && '-C target-feature=+crt-static' || '' }}
           # Additional environment variables
           CARGO_BUILD_TARGET_DIR: ${{ github.workspace }}/target
 
@@ -189,8 +187,8 @@ jobs:
           cp artifacts/binaries-x86_64-unknown-linux-musl/colony release-assets/colony-x86_64-unknown-linux-musl
 
           # Linux ARM64 (Raspberry Pi, etc.)
-          cp artifacts/binaries-aarch64-unknown-linux-musl/colonyd release-assets/colonyd-aarch64-unknown-linux-musl
-          cp artifacts/binaries-aarch64-unknown-linux-musl/colony release-assets/colony-aarch64-unknown-linux-musl
+          cp artifacts/binaries-aarch64-unknown-linux-gnu/colonyd release-assets/colonyd-aarch64-unknown-linux-gnu
+          cp artifacts/binaries-aarch64-unknown-linux-gnu/colony release-assets/colony-aarch64-unknown-linux-gnu
 
           # macOS x86_64 (Intel)
           cp artifacts/binaries-x86_64-apple-darwin/colonyd release-assets/colonyd-x86_64-apple-darwin
