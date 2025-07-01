@@ -116,8 +116,8 @@ jobs:
           fi
         shell: bash
         env:
-          # Set RUSTFLAGS for static linking on musl targets
-          RUSTFLAGS: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || '' }}
+          # Set RUSTFLAGS for static linking on musl and Windows MSVC targets
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '-C target-feature=+crt-static' || matrix.target == 'x86_64-pc-windows-msvc' && '-C target-feature=+crt-static' || '' }}
           # Additional environment variables
           CARGO_BUILD_TARGET_DIR: ${{ github.workspace }}/target
 
