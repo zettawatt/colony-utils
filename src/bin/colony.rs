@@ -419,9 +419,17 @@ fn print_search_results_table(value: &Value) {
             .iter()
             .any(|binding| binding.get("subject").is_some());
 
+        // Check if this is a browse search by looking for 'name', 'type', and 'description' variables
+        let has_browse_vars = bindings_array
+            .iter()
+            .any(|binding| binding.get("name").is_some() && binding.get("type").is_some());
+
         if has_graph_vars && !has_subject_vars {
             // This is a subject search - display detailed information
             print_subject_details(value, bindings_array);
+        } else if has_browse_vars {
+            // This is a browse search - display browse table format
+            print_browse_results_table(bindings_array);
         } else {
             // This is a general search - display table format
             print_subjects_table(bindings_array);
@@ -676,10 +684,98 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+fn print_browse_results_table(bindings_array: &[Value]) {
+    if bindings_array.is_empty() {
+        println!("{}", "No results found.".yellow());
+        return;
+    }
+
+    // Print table header
+    println!(
+        "{}",
+        format!("{:<30} {:<50} {:<96}", "Name", "Description", "Address")
+            .cyan()
+            .bold()
+    );
+    println!("{}", "─".repeat(178).cyan());
+
+    // Process each binding
+    for binding in bindings_array {
+        // Extract name
+        let name = if let Some(name_obj) = binding.get("name") {
+            if let Some(name_value) = name_obj.get("value") {
+                name_value.as_str().unwrap_or("").to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        // Extract description
+        let description = if let Some(desc_obj) = binding.get("description") {
+            if let Some(desc_value) = desc_obj.get("value") {
+                desc_value.as_str().unwrap_or("").to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        // Extract subject address (the actual resource address)
+        let address = if let Some(subject_obj) = binding.get("subject") {
+            if let Some(subject_value) = subject_obj.get("value") {
+                if let Some(subject_str) = subject_value.as_str() {
+                    // Extract the address part from ant:// URIs
+                    if subject_str.starts_with("ant://") {
+                        subject_str
+                            .strip_prefix("ant://")
+                            .unwrap_or(subject_str)
+                            .to_string()
+                    } else {
+                        subject_str.to_string()
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        // Truncate long values for table display
+        let name_display = if name.len() > 28 {
+            format!("{}...", &name[..25])
+        } else {
+            name
+        };
+        let desc_display = if description.len() > 48 {
+            format!("{}...", &description[..45])
+        } else {
+            description
+        };
+        let addr_display = if address.len() > 96 {
+            format!("{}...", &address[..93])
+        } else {
+            address
+        };
+
+        println!(
+            "{:<30} {:<50} {:<96}",
+            name_display.green(),
+            desc_display.white(),
+            addr_display.blue()
+        );
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony")
-        .version("0.2.3")
+        .version("0.2.4")
         .author("Chuck McClish")
         .about("A colonylib CLI for interacting with the colonyd daemon")
         .arg(
@@ -735,6 +831,22 @@ async fn main() -> anyhow::Result<()> {
                                 .value_name("QUERY")
                                 .help("SPARQL query to execute")
                                 .required(true),
+                        )
+                        .arg(
+                            Arg::new("json")
+                                .long("json")
+                                .help("Display raw JSON output instead of formatted table")
+                                .action(clap::ArgAction::SetTrue),
+                        ),
+                )
+                .subcommand(
+                    Command::new("browse")
+                        .about("Browse the network")
+                        .arg(
+                            Arg::new("limit")
+                                .long("limit")
+                                .value_name("LIMIT")
+                                .help("Maximum number of results (default: 50)"),
                         )
                         .arg(
                             Arg::new("json")
@@ -1135,6 +1247,46 @@ async fn handle_search(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let job_response: JobResponse = response.json().await?;
                 let result =
                     wait_for_job_completion_no_auth(config, &job_response.job_id, "Text search")
+                        .await?;
+
+                println!("\n{}", "📋 Search Results:".green().bold());
+                if json {
+                    print_json_pretty(&result);
+                } else {
+                    print_search_results_table(&result);
+                }
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to start search:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        Some(("browse", sub_matches)) => {
+            let json = sub_matches.get_flag("json");
+            let limit: u32 = sub_matches
+                .get_one::<String>("limit")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(50);
+
+            println!("{} (limit: {})", "🔍 Browsing:".cyan(), limit);
+
+            let search_payload = json!({
+                "type": "browse",
+                "limit": limit
+            });
+
+            // Use asynchronous job-based search endpoint (public)
+            let response = client
+                .post(format!("{base_url}/colony-0/jobs/search"))
+                .header("Content-Type", "application/json")
+                .json(&search_payload)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let job_response: JobResponse = response.json().await?;
+                let result =
+                    wait_for_job_completion_no_auth(config, &job_response.job_id, "Browse search")
                         .await?;
 
                 println!("\n{}", "📋 Search Results:".green().bold());

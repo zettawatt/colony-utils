@@ -1103,7 +1103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse command line arguments
     let matches = Command::new("colonyd")
-        .version("0.2.3")
+        .version("0.2.4")
         .about("A server hosting a REST endpoint for interacting with colonylib")
         .arg(
             Arg::new("port")
@@ -1239,17 +1239,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(secret_key) = std::env::var("SECRET_KEY") {
                 println!("No wallet key provided, using SECRET_KEY environment variable");
                 keystore
-                    .set_wallet_key(secret_key)
+                    .add_wallet_key("main", secret_key.as_str())
                     .map_err(|e| format!("Failed to set wallet key: {e}"))?;
             } else {
                 println!("No wallet key provided, using default local testnet key");
                 keystore
-                    .set_wallet_key(LOCAL_PRIVATE_KEY.to_string())
+                    .add_wallet_key("main", LOCAL_PRIVATE_KEY)
                     .map_err(|e| format!("Failed to set wallet key: {e}"))?;
             }
         } else {
             keystore
-                .set_wallet_key(wallet_key)
+                .add_wallet_key("main", wallet_key.as_str())
                 .map_err(|e| format!("Failed to set wallet key: {e}"))?;
         }
 
@@ -1316,7 +1316,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = init_client(network.to_string()).await;
 
-    let wallet_key = keystore.get_wallet_key();
+    let wallet_key = keystore.get_wallet_key("main")?;
     let wallet = Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key)
         .map_err(|e| format!("Failed to create wallet: {e}"))?;
 
@@ -2364,8 +2364,9 @@ mod tests {
         let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let mut keystore = KeyStore::from_mnemonic(test_mnemonic).unwrap();
         keystore
-            .set_wallet_key(
-                "0x1234567890123456789012345678901234567890123456789012345678901234".to_string(),
+            .add_wallet_key(
+                "main",
+                "0x1234567890123456789012345678901234567890123456789012345678901234",
             )
             .unwrap();
 
@@ -2388,7 +2389,7 @@ mod tests {
             }
         };
 
-        let wallet_key = keystore.get_wallet_key();
+        let wallet_key = keystore.get_wallet_key("main").unwrap();
         let wallet = match Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key) {
             Ok(wallet) => wallet,
             Err(e) => {

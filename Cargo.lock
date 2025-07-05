@@ -2005,7 +2005,7 @@ dependencies = [
 
 [[package]]
 name = "colony-utils"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "autonomi",
@@ -2036,9 +2036,9 @@ dependencies = [
 
 [[package]]
 name = "colonylib"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce71f5f3ddcac10dfbd9c2122076fde257c1d8d3b749161a240f33b1807fe704"
+checksum = "1f63641fd04ab621318f9b33c7f790d8638035a013a99cf8be911518236bd7c5"
 dependencies = [
  "ant-networking",
  "autonomi",
