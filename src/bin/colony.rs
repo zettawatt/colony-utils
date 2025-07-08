@@ -775,7 +775,7 @@ fn print_browse_results_table(bindings_array: &[Value]) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony")
-        .version("0.2.4")
+        .version("0.2.5")
         .author("Chuck McClish")
         .about("A colonylib CLI for interacting with the colonyd daemon")
         .arg(
