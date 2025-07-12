@@ -2011,6 +2011,7 @@ dependencies = [
  "autonomi",
  "axum 0.8.4",
  "axum-extra",
+ "base64",
  "bip39",
  "chrono",
  "clap",
