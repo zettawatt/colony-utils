@@ -17,6 +17,10 @@ path = "src/bin/colonyd.rs"
 name = "colony"
 path = "src/bin/colony.rs"
 
+[[bin]]
+name = "ia_downloader"
+path = "src/bin/ia_downloader.rs"
+
 [dependencies]
 # Shared dependencies
 clap = "4.5.39"
@@ -45,6 +49,14 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 colored = "2.0"
 anyhow = "1.0"
+
+# Additional dependencies for ia_downloader
+quick-xml = "0.36"
+sha2 = "0.10"
+hex = "0.4"
+url = "2.5"
+futures-util = "0.3"
+urlencoding = "2.1"
 
 [dev-dependencies]
 hyper = { version = "1.6.0", features = ["full"] }
