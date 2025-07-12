@@ -57,9 +57,12 @@ struct Config {
     huggingface_api_key: Option<String>,
     tmdb_api_key: Option<String>,
 
+    // AI Enhancement settings
+    ai_model_url: Option<String>,
+    enable_ai_enhancement: bool,
+
     // Default settings
     default_output_dir: Option<String>,
-    enable_ai_enhancement: bool,
     max_concurrent_downloads: usize,
 }
 
@@ -68,8 +71,9 @@ impl Default for Config {
         Self {
             huggingface_api_key: None,
             tmdb_api_key: None,
-            default_output_dir: Some("colony_uploader".to_string()),
+            ai_model_url: Some("https://api-inference.huggingface.co/models/facebook/bart-large-cnn".to_string()),
             enable_ai_enhancement: false,
+            default_output_dir: Some("colony_uploader".to_string()),
             max_concurrent_downloads: 3,
         }
     }
@@ -246,9 +250,14 @@ async fn main() -> anyhow::Result<()> {
             source: "Internet Archive".to_string(),
         }
     } else {
-        // Check for AI enhancement flag
-        let ai_enhance = matches.get_flag("ai-enhance");
-        enhance_metadata(&client, &metadata, &identifier, ai_enhance).await?
+        // Check for AI enhancement: command line flag OR config file setting
+        let ai_enhance = matches.get_flag("ai-enhance") || _config.enable_ai_enhancement;
+        if ai_enhance {
+            println!("{} {}", "🔍 Enhancing metadata...".bold(), "Trying multiple sources + AI".yellow());
+        } else {
+            println!("{} {}", "🔍 Enhancing metadata...".bold(), "Trying multiple sources".yellow());
+        }
+        enhance_metadata(&client, &metadata, &identifier, ai_enhance, &_config).await?
     };
 
     // Filter files by extensions
@@ -523,9 +532,8 @@ async fn enhance_metadata(
     base_metadata: &MetadataInfo,
     identifier: &str,
     ai_enhance: bool,
+    config: &Config,
 ) -> anyhow::Result<EnhancedMetadata> {
-    println!("{} {}", "🔍 Enhancing metadata...".bold(), "Trying multiple sources".cyan());
-
     let mut enhanced = EnhancedMetadata {
         title: base_metadata.title.clone(),
         description: base_metadata.description.clone(),
@@ -576,9 +584,19 @@ async fn enhance_metadata(
 
     // Optional: AI enhancement for description (if enabled)
     if ai_enhance {
-        if let Ok(ai_description) = get_ai_enhanced_description(client, &enhanced).await {
-            enhanced.enhanced_description = Some(ai_description);
-            enhanced.source = format!("{} + AI", enhanced.source);
+        let model_name = config.ai_model_url.as_ref()
+            .and_then(|url| url.split('/').last())
+            .unwrap_or("default");
+
+        match get_ai_enhanced_description(client, &enhanced, config).await {
+            Ok(ai_description) => {
+                enhanced.enhanced_description = Some(ai_description);
+                enhanced.source = format!("{} + AI", enhanced.source);
+                println!("{} {} ({})", "✅".green(), "AI enhancement successful".green(), model_name.cyan());
+            }
+            Err(e) => {
+                println!("{} {} ({}): {}", "⚠️".yellow(), "AI enhancement failed".yellow(), model_name.cyan(), e.to_string().red());
+            }
         }
     }
 
@@ -747,9 +765,10 @@ fn merge_wikipedia_metadata(mut enhanced: EnhancedMetadata, wiki_data: serde_jso
 }
 
 // AI enhancement using Hugging Face Inference API (free tier)
-async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadata) -> anyhow::Result<String> {
-    // Use Hugging Face's free inference API for text summarization
-    let api_url = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
+async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadata, config: &Config) -> anyhow::Result<String> {
+    // Use configurable AI model URL from config, with fallback to default
+    let default_model_url = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
+    let api_url = config.ai_model_url.as_deref().unwrap_or(default_model_url);
 
     // Prepare the text to summarize (combine title, author, and existing description)
     let input_text = format!(
@@ -775,9 +794,14 @@ async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadat
         }
     });
 
+    // Check if we have an API key
+    let api_key = config.huggingface_api_key.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Hugging Face API key not found in config"))?;
+
     let response = client
         .post(api_url)
         .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key))
         .json(&payload)
         .send()
         .await?;
