@@ -1,9 +1,12 @@
+use autonomi::{client::data::DataAddress, self_encryption::encrypt};
+use bytes::Bytes;
 use clap::{Arg, Command};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,8 +51,53 @@ struct EnhancedMetadata {
     source: String, // Which API provided the enhancement
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Config {
+    // API Keys for enhanced metadata
+    huggingface_api_key: Option<String>,
+    tmdb_api_key: Option<String>,
+
+    // Default settings
+    default_output_dir: Option<String>,
+    enable_ai_enhancement: bool,
+    max_concurrent_downloads: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            huggingface_api_key: None,
+            tmdb_api_key: None,
+            default_output_dir: Some("colony_uploader".to_string()),
+            enable_ai_enhancement: false,
+            max_concurrent_downloads: 3,
+        }
+    }
+}
+
+fn load_config() -> Config {
+    let config_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("ia_downloader")
+        .join("config.json");
+
+    if config_path.exists() {
+        if let Ok(content) = fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str::<Config>(&content) {
+                return config;
+            }
+        }
+    }
+
+    // Return default config if file doesn't exist or can't be parsed
+    Config::default()
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load configuration
+    let _config = load_config();
+
     let app = Command::new("ia_downloader")
         .version("0.1.0")
         .author("Chuck McClish")
@@ -80,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
                 .short('o')
                 .long("output-dir")
                 .value_name("DIR")
-                .help("Output directory (default: colony_uploader)")
+                .help("Output directory")
                 .default_value("colony_uploader"),
         )
         .arg(
@@ -214,6 +262,9 @@ async fn main() -> anyhow::Result<()> {
     println!("{} Found {} files to download", "📁".bold(), filtered_files.len().to_string().green());
 
     // Create extension directories and download files
+    let mut total_downloaded_size = 0u64;
+    let mut downloaded_files_count = 0;
+
     for (extension, files_for_ext) in group_files_by_extension(&filtered_files) {
         let ext_dir = item_dir.join(&extension);
         if !ext_dir.exists() {
@@ -224,9 +275,14 @@ async fn main() -> anyhow::Result<()> {
         for (index, file) in files_for_ext.iter().enumerate() {
             download_file(&client, &identifier, &file, &ext_dir).await?;
 
-            // Get actual downloaded file size
+            // Validate downloaded file
             let file_path = ext_dir.join(&file.name);
+            validate_downloaded_file(&file_path, Some(file.size))?;
+
+            // Get actual downloaded file size
             let actual_size = fs::metadata(&file_path)?.len();
+            total_downloaded_size += actual_size;
+            downloaded_files_count += 1;
 
             // Calculate Autonomi address
             let autonomi_address = calculate_autonomi_address(&file_path)?;
@@ -243,10 +299,21 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Calculate and display summary statistics
+    let total_size_mb = total_downloaded_size as f64 / 1_048_576.0; // Convert to MB
+
     println!();
-    println!("{} {}", "🎉 Download completed!".bold().green(), 
+    println!("{} {}", "📊 Download Summary:".bold().cyan(), "");
+    println!("   {} Files downloaded: {}", "📁".bold(), downloaded_files_count.to_string().green());
+    println!("   {} Total size: {:.2} MB ({} bytes)", "💾".bold(), total_size_mb.to_string().green(), total_downloaded_size.to_string().yellow());
+    println!("   {} Metadata source: {}", "🔍".bold(), enhanced_metadata.source.green());
+    if thumbnail_address.is_some() {
+        println!("   {} Thumbnail: {}", "🖼️".bold(), "Downloaded".green());
+    }
+    println!();
+    println!("{} {}", "🎉 Download completed!".bold().green(),
         format!("Files saved to: {}", item_dir.display()).blue());
-    
+
     Ok(())
 }
 
@@ -756,7 +823,13 @@ async fn download_file(
     let encoded_name = urlencoding::encode(&file.name);
     let file_url = format!("https://archive.org/download/{}/{}", identifier, encoded_name);
 
-    let pb = ProgressBar::new(file.size);
+    // Use actual file size if available, otherwise show indeterminate progress
+    let pb = if file.size > 0 {
+        ProgressBar::new(file.size)
+    } else {
+        ProgressBar::new_spinner()
+    };
+
     pb.set_style(ProgressStyle::default_bar()
         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
         .unwrap()
@@ -766,6 +839,7 @@ async fn download_file(
     let response = client.get(&file_url).send().await?;
 
     if !response.status().is_success() {
+        pb.finish_and_clear();
         anyhow::bail!("Failed to download file {}: HTTP {}", file.name, response.status());
     }
 
@@ -776,17 +850,40 @@ async fn download_file(
     fs::write(&file_path, &bytes)?;
 
     pb.set_position(bytes.len() as u64);
-
     pb.finish_and_clear();
+    Ok(())
+}
+
+fn validate_downloaded_file(file_path: &Path, expected_size: Option<u64>) -> anyhow::Result<()> {
+    if !file_path.exists() {
+        anyhow::bail!("Downloaded file does not exist: {}", file_path.display());
+    }
+
+    let actual_size = fs::metadata(file_path)?.len();
+
+    if let Some(expected) = expected_size {
+        if actual_size != expected && expected > 0 {
+            println!("⚠️  File size mismatch: expected {} bytes, got {} bytes", expected, actual_size);
+        }
+    }
+
+    if actual_size == 0 {
+        anyhow::bail!("Downloaded file is empty: {}", file_path.display());
+    }
+
     Ok(())
 }
 
 fn calculate_autonomi_address(file_path: &Path) -> anyhow::Result<String> {
     let file_content = fs::read(file_path)?;
-    let mut hasher = Sha256::new();
-    hasher.update(&file_content);
-    let hash = hasher.finalize();
-    Ok(hex::encode(hash))
+
+    // Use Autonomi's proper address calculation
+    // This follows the same process as data_put_public: encrypt the data and get the data map chunk address
+    let bytes = Bytes::from(file_content);
+    let (data_map_chunk, _chunks) = encrypt(bytes)?;
+    let map_xor_name = *data_map_chunk.address().xorname();
+    let data_address = DataAddress::new(map_xor_name);
+    Ok(hex::encode(data_address.xorname().0))
 }
 
 async fn create_jsonld_metadata(

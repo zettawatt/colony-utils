@@ -2013,6 +2013,7 @@ dependencies = [
  "axum-extra",
  "base64",
  "bip39",
+ "bytes",
  "chrono",
  "clap",
  "colonylib",
