@@ -1,4 +1,6 @@
-use autonomi::{Client, Wallet};
+use autonomi::client::payment::PaymentOption;
+use autonomi::data::DataAddress;
+use autonomi::{Bytes, Client, Wallet};
 use axum::{
     Router,
     extract::{Path, State},
@@ -13,6 +15,7 @@ use colonylib::{DataStore, Graph, KeyStore, PodManager};
 use dialoguer::{Confirm, Input, Password};
 use indicatif::{ProgressBar, ProgressStyle};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use ruint::Uint;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::{
@@ -83,6 +86,51 @@ struct RenamePodRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct CreateWalletRequest {
+    name: String,
+    private_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RenameWalletRequest {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SetActiveWalletRequest {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct WalletResponse {
+    name: String,
+    address: String,
+    is_active: bool,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileDownloadRequest {
+    address: String,
+    destination: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileUploadRequest {
+    file_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileResponse {
+    file_path: String,
+    address: String, // Autonomi address for uploaded files
+    size: u64,
+    ant_cost: f64,
+    gas_cost: f64,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct CacheResponse {
     status: String,
     message: String,
@@ -135,6 +183,8 @@ enum JobType {
     RefreshRef,
     Search,
     GetSubjectData,
+    FileDownload,
+    FileUpload,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1068,6 +1118,499 @@ impl PodService {
             }
         }
     }
+
+    // Wallet management methods
+
+    // Maps to PodManager::get_active_wallet()
+    async fn get_active_wallet(&self) -> Result<WalletResponse, String> {
+        info!("Getting active wallet");
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            let (name, address) = podman
+                .get_active_wallet()
+                .map_err(|e| format!("Failed to get active wallet: {e}"))?;
+            debug!("Active wallet: {name} {address}");
+
+            // For now, return a placeholder response
+            let wallet_response = WalletResponse {
+                name,
+                address,
+                is_active: true,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(wallet_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(wallet_response) => {
+                info!("Active wallet retrieved successfully");
+                Ok(wallet_response)
+            }
+            Err(e) => {
+                warn!("Failed to get active wallet: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::set_active_wallet()
+    async fn set_active_wallet(
+        &self,
+        request: SetActiveWalletRequest,
+    ) -> Result<WalletResponse, String> {
+        info!("Setting active wallet to: {}", request.name);
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            let (name, address) = podman
+                .set_active_wallet(&request.name)
+                .map_err(|e| format!("Failed to set active wallet: {e}"))?;
+            let wallet_key = keystore
+                .get_wallet_key(&name)
+                .map_err(|e| format!("Failed to get wallet key: {e}"))?;
+
+            // Create new wallet with the specified key
+            let evm_network = client.evm_network().clone();
+            let wallet = Wallet::new_from_private_key(evm_network, &wallet_key)
+                .map_err(|e| format!("Failed to create wallet: {e}"))?;
+
+            Ok((wallet, name, address))
+        }
+        .await;
+
+        // Handle the result
+        match result {
+            Ok((wallet, name, address)) => {
+                info!("Active wallet set successfully to: {}", request.name);
+                self.restore_components(client, wallet, data_store, keystore, graph);
+                Ok(WalletResponse {
+                    name,
+                    address,
+                    is_active: true,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+            Err(e) => {
+                warn!("Failed to set active wallet to {}: {}", request.name, e);
+                self.restore_components(client, wallet, data_store, keystore, graph);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::list_wallets()
+    async fn list_wallets(&self) -> Result<Value, String> {
+        info!("Listing wallets");
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            let wallets = podman.get_wallet_addresses();
+
+            // Convert to hashmap to a single Value JSON object
+            let wallets = wallets
+                .iter()
+                .map(|(name, address)| {
+                    let is_active = name == &podman.get_active_wallet().unwrap().0;
+                    serde_json::json!({
+                        "name": name,
+                        "address": address,
+                        "is_active": is_active
+                    })
+                })
+                .collect::<Value>();
+
+            Ok(wallets)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(wallets) => {
+                info!("Wallets listed successfully");
+                Ok(wallets)
+            }
+            Err(e) => {
+                warn!("Failed to list wallets: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::add_wallet()
+    async fn add_wallet(
+        &self,
+        request: CreateWalletRequest,
+        keystore_password: &str,
+    ) -> Result<WalletResponse, String> {
+        info!("Adding new wallet: {}", request.name);
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            podman
+                .add_wallet_key(&request.name, &request.private_key)
+                .await
+                .map_err(|e| format!("Failed to add wallet key: {e}"))?;
+
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file)
+                .map_err(|e| format!("Failed to create keystore file: {e}"))?;
+            KeyStore::to_file(&keystore, &mut file, keystore_password)
+                .map_err(|e| format!("Failed to save KeyStore: {e}"))?;
+
+            // Create the address from the private key
+            let address =
+                Wallet::new_from_private_key(client.evm_network().clone(), &request.private_key)
+                    .map_err(|e| format!("Failed to get address: {e}"))?
+                    .address()
+                    .to_string();
+
+            let wallet_response = WalletResponse {
+                name: request.name.clone(),
+                address,
+                is_active: false,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(wallet_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(wallet_response) => {
+                info!("Wallet added successfully: {}", request.name);
+                Ok(wallet_response)
+            }
+            Err(e) => {
+                warn!("Failed to add wallet {}: {}", request.name, e);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::remove_wallet()
+    async fn remove_wallet(
+        &self,
+        wallet_name: &str,
+        keystore_password: &str,
+    ) -> Result<WalletResponse, String> {
+        info!("Removing wallet: {}", wallet_name);
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let address = keystore
+                .get_wallet_address(wallet_name)
+                .map_err(|e| format!("Failed to get wallet address: {e}"))?;
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            podman
+                .remove_wallet_key(wallet_name)
+                .map_err(|e| format!("Failed to remove wallet key: {e}"))?;
+
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file)
+                .map_err(|e| format!("Failed to create keystore file: {e}"))?;
+            KeyStore::to_file(&keystore, &mut file, keystore_password)
+                .map_err(|e| format!("Failed to save KeyStore: {e}"))?;
+
+            let wallet_response = WalletResponse {
+                name: wallet_name.to_string(),
+                address: address.to_string(),
+                is_active: false,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(wallet_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(wallet_response) => {
+                info!("Wallet removed successfully: {wallet_name}");
+                Ok(wallet_response)
+            }
+            Err(e) => {
+                warn!("Failed to remove wallet {wallet_name}: {e}");
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::rename_wallet()
+    async fn rename_wallet(
+        &self,
+        wallet_name: &str,
+        request: RenameWalletRequest,
+        keystore_password: &str,
+    ) -> Result<(), String> {
+        info!("Renaming wallet {} to: {}", wallet_name, request.name);
+
+        // Extract components
+        let (client, wallet, mut data_store, mut keystore, mut graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            // Get the private key of this wallet
+            let private_key = keystore
+                .get_wallet_key(wallet_name)
+                .map_err(|e| format!("Failed to get wallet key: {e}"))?;
+            let mut podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store,
+                &mut keystore,
+                &mut graph,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            // Remove the existing wallet, and add a new one with the new name
+            podman
+                .remove_wallet_key(wallet_name)
+                .map_err(|e| format!("Failed to remove wallet key: {e}"))?;
+            podman
+                .add_wallet_key(&request.name, &private_key)
+                .await
+                .map_err(|e| format!("Failed to add wallet key: {e}"))?;
+
+            let key_store_file = podman.data_store.get_keystore_path();
+            let mut file = std::fs::File::create(key_store_file)
+                .map_err(|e| format!("Failed to create keystore file: {e}"))?;
+            KeyStore::to_file(&keystore, &mut file, keystore_password)
+                .map_err(|e| format!("Failed to save KeyStore: {e}"))?;
+
+            Ok(())
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(()) => {
+                info!(
+                    "Wallet renamed successfully from {} to {}",
+                    wallet_name, request.name
+                );
+                Ok(())
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to rename wallet {} to {}: {}",
+                    wallet_name, request.name, e
+                );
+                Err(e)
+            }
+        }
+    }
+
+    // File management methods
+
+    // Maps to PodManager::download_file()
+    async fn download_file(&self, request: FileDownloadRequest) -> Result<FileResponse, String> {
+        info!("Downloading file from: {}", request.address);
+
+        // Extract components
+        let (client, wallet, data_store, keystore, graph) = self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            // Data address of the file
+            let data_address = DataAddress::from_hex(request.address.trim())
+                .map_err(|e| format!("Failed to parse data address: {e}"))?;
+
+            // Get the bytes of the file
+            let bytes = client
+                .data_get_public(&data_address)
+                .await
+                .map_err(|e| format!("Failed to get data: {e}"))?;
+
+            // Write the bytes to a feil
+            std::fs::write(request.destination.clone(), bytes.clone())
+                .map_err(|e| format!("Failed to write file: {e}"))?;
+
+            let file_response = FileResponse {
+                file_path: request.destination,
+                address: data_address.to_string(),
+                size: bytes.len() as u64,
+                ant_cost: 0.0,
+                gas_cost: 0.0,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(file_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(file_response) => {
+                info!("File downloaded successfully from: {}", request.address);
+                Ok(file_response)
+            }
+            Err(e) => {
+                warn!("Failed to download file from {}: {}", request.address, e);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::upload_file()
+    async fn upload_file(&self, request: FileUploadRequest) -> Result<FileResponse, String> {
+        info!("Uploading file: {}", request.file_path);
+
+        // Extract components
+        let (client, wallet, data_store, keystore, graph) = self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            // get initial eth balance in wallet
+            let initial_gas_balance = wallet
+                .balance_of_gas_tokens()
+                .await
+                .map_err(|e| format!("Failed to get initial gas balance: {e}"))?;
+            let data = std::fs::read(request.file_path.clone())
+                .map_err(|e| format!("Failed to read file: {e}"))?;
+            let data = Bytes::from(data);
+            let size = data.len();
+
+            let payment = PaymentOption::Wallet(wallet.clone());
+            let (cost, data_addr) = client
+                .data_put_public(data, payment)
+                .await
+                .map_err(|e| format!("Failed to upload data: {e}"))?;
+            let address = hex::encode(data_addr.xorname().0);
+
+            // get remaining eth balance in wallet
+            let final_gas_balance = wallet
+                .balance_of_gas_tokens()
+                .await
+                .map_err(|e| format!("Failed to get final gas balance: {e}"))?;
+            let gas_cost: Uint<256, 4> = initial_gas_balance - final_gas_balance;
+            let gas_cost: f64 = gas_cost.into();
+            let gas_cost: f64 = gas_cost / 1_000_000_000_000_000_000.0f64;
+
+            let ant_cost: f64 = cost.as_atto().into();
+            let ant_cost: f64 = ant_cost / 1_000_000_000_000_000_000.0f64;
+
+            let file_response = FileResponse {
+                file_path: request.file_path.clone(),
+                address,
+                size: size as u64,
+                ant_cost,
+                gas_cost,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(file_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(file_response) => {
+                info!("File uploaded successfully: {}", request.file_path);
+                Ok(file_response)
+            }
+            Err(e) => {
+                warn!("Failed to upload file {}: {}", request.file_path, e);
+                Err(e)
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1253,6 +1796,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("Failed to set wallet key: {e}"))?;
         }
 
+        // Set the new active wallet in the keystore
+        let (wallet_name, wallet_address) = keystore
+            .set_active_wallet("main")
+            .map_err(|e| format!("Failed to set active wallet in the keystore: {e}"))?;
+        data_store
+            .set_active_wallet(&wallet_name, &wallet_address)
+            .map_err(|e| format!("Failed to set active wallet in the datastore: {e}"))?;
+
         // Save KeyStore to file
         let mut file = fs::File::create(&keystore_path)
             .map_err(|e| format!("Failed to create keystore file: {e}"))?;
@@ -1316,7 +1867,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = init_client(network.to_string()).await;
 
-    let wallet_key = keystore.get_wallet_key("main")?;
+    // Get the active wallet
+    let (active_wallet_name, _active_wallet_address) = data_store.get_active_wallet()?;
+    let wallet_key = keystore.get_wallet_key(&active_wallet_name)?;
     let wallet = Wallet::new_from_private_key(client.evm_network().clone(), &wallet_key)
         .map_err(|e| format!("Failed to create wallet: {e}"))?;
 
@@ -1425,6 +1978,7 @@ fn create_router(state: AppState) -> Router {
             "/colony-0/jobs/search/subject/{subject}",
             post(start_get_subject_data_job),
         )
+        .route("/colony-0/file/download", post(start_file_download))
         .route("/colony-0/jobs/{job_id}", get(get_job_status))
         .route("/colony-0/jobs/{job_id}/result", get(get_job_result))
         // Synchronous endpoints
@@ -1441,11 +1995,21 @@ fn create_router(state: AppState) -> Router {
             "/colony-0/jobs/cache/upload/{address}",
             post(start_upload_pod_job),
         )
+        .route("/colony-0/file/upload", post(start_file_upload))
         // Synchronous endpoints
         .route("/colony-0/updates", get(get_update_list))
         .route("/colony-0/pods", get(list_my_pods).post(add_pod))
         .route("/colony-0/pods/{pod}", delete(remove_pod).post(rename_pod))
         .route("/colony-0/pods/{pod}/{subject}", put(put_subject_data))
+        .route(
+            "/colony-0/wallet",
+            get(get_active_wallet).post(set_active_wallet),
+        )
+        .route("/colony-0/wallets", get(list_wallets).post(add_wallet))
+        .route(
+            "/colony-0/wallets/{wallet}",
+            delete(remove_wallet).post(rename_wallet),
+        )
         .route(
             "/colony-0/pods/{pod}/pod_ref",
             post(add_pod_ref).delete(remove_pod_ref),
@@ -1849,6 +2413,175 @@ async fn search(
     }
 }
 
+// Wallet management REST endpoint handlers
+
+#[instrument(skip(state))]
+async fn get_active_wallet(
+    State(state): State<AppState>,
+) -> Result<Json<WalletResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting active wallet");
+
+    match state.pod_service.get_active_wallet().await {
+        Ok(wallet) => {
+            info!("Active wallet retrieved successfully");
+            Ok(Json(wallet))
+        }
+        Err(err) => {
+            error!("Failed to get active wallet: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_ACTIVE_WALLET_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn set_active_wallet(
+    State(state): State<AppState>,
+    Json(request): Json<SetActiveWalletRequest>,
+) -> Result<Json<WalletResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Setting active wallet to: {}", request.name);
+
+    match state.pod_service.set_active_wallet(request).await {
+        Ok(wallet) => {
+            info!("Active wallet set successfully");
+            Ok(Json(wallet))
+        }
+        Err(err) => {
+            error!("Failed to set active wallet: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "SET_ACTIVE_WALLET_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn list_wallets(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Listing wallets");
+
+    match state.pod_service.list_wallets().await {
+        Ok(wallets) => {
+            info!("Wallets listed successfully");
+            Ok(Json(wallets))
+        }
+        Err(err) => {
+            error!("Failed to list wallets: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "LIST_WALLETS_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn add_wallet(
+    State(state): State<AppState>,
+    Json(request): Json<CreateWalletRequest>,
+) -> Result<Json<WalletResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Adding new wallet: {}", request.name);
+
+    match state
+        .pod_service
+        .add_wallet(request, &state.keystore_password)
+        .await
+    {
+        Ok(wallet) => {
+            info!("Wallet added successfully: {}", wallet.name);
+            Ok(Json(wallet))
+        }
+        Err(err) => {
+            error!("Failed to add wallet: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "ADD_WALLET_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn remove_wallet(
+    State(state): State<AppState>,
+    Path(wallet_name): Path<String>,
+) -> Result<Json<WalletResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Removing wallet: {}", wallet_name);
+
+    match state
+        .pod_service
+        .remove_wallet(&wallet_name, &state.keystore_password)
+        .await
+    {
+        Ok(wallet) => {
+            info!("Wallet removed successfully: {}", wallet_name);
+            Ok(Json(wallet))
+        }
+        Err(err) => {
+            error!("Failed to remove wallet {}: {}", wallet_name, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "REMOVE_WALLET_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn rename_wallet(
+    State(state): State<AppState>,
+    Path(wallet_name): Path<String>,
+    Json(request): Json<RenameWalletRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    info!("Renaming wallet {} to: {}", wallet_name, request.name);
+
+    match state
+        .pod_service
+        .rename_wallet(&wallet_name, request, &state.keystore_password)
+        .await
+    {
+        Ok(()) => {
+            info!("Wallet renamed successfully: {}", wallet_name);
+            Ok(StatusCode::OK)
+        }
+        Err(err) => {
+            error!("Failed to rename wallet {}: {}", wallet_name, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "RENAME_WALLET_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
 fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(pass_spec) = password_arg {
         if let Some(password) = pass_spec.strip_prefix("pass:") {
@@ -1866,6 +2599,132 @@ fn get_password(password_arg: Option<&String>) -> Result<String, Box<dyn std::er
             .with_prompt("Enter KeyStore password")
             .interact()
             .map_err(|e| e.into())
+    }
+}
+
+// File management endpoint handlers
+
+#[instrument(skip(state))]
+async fn start_file_download(
+    State(state): State<AppState>,
+    Json(request): Json<FileDownloadRequest>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting file download job for: {}", request.address);
+
+    match state.job_manager.create_job(JobType::FileDownload).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some("Starting file download".to_string()),
+                        Some(0.1),
+                    )
+                    .await;
+
+                match state_clone.pod_service.download_file(request).await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
+                    }
+                    Err(err) => {
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: "File download job started".to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create file download job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn start_file_upload(
+    State(state): State<AppState>,
+    Json(request): Json<FileUploadRequest>,
+) -> Result<Json<JobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Starting file upload job for: {}", request.file_path);
+
+    match state.job_manager.create_job(JobType::FileUpload).await {
+        Ok(job_id) => {
+            let job_id_clone = job_id.clone();
+            let state_clone = state.clone();
+
+            // Spawn background task
+            tokio::spawn(async move {
+                state_clone
+                    .job_manager
+                    .update_job_status(
+                        &job_id_clone,
+                        JobStatus::Running,
+                        Some("Starting file upload".to_string()),
+                        Some(0.1),
+                    )
+                    .await;
+
+                match state_clone.pod_service.upload_file(request).await {
+                    Ok(response) => {
+                        let result = serde_json::to_value(response).unwrap_or_default();
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, Some(result), None)
+                            .await;
+                    }
+                    Err(err) => {
+                        state_clone
+                            .job_manager
+                            .complete_job(&job_id_clone, None, Some(err))
+                            .await;
+                    }
+                }
+            });
+
+            Ok(Json(JobResponse {
+                job_id,
+                status: JobStatus::Pending,
+                message: "File upload job started".to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            }))
+        }
+        Err(err) => {
+            error!("Failed to create file upload job: {}", err);
+            Err((
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "JOB_CREATION_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
     }
 }
 

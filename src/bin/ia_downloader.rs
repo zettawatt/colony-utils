@@ -10,7 +10,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tokio;
 use url::Url;
 
 #[derive(Debug)]
@@ -71,7 +70,9 @@ impl Default for Config {
         Self {
             huggingface_api_key: None,
             tmdb_api_key: None,
-            ai_model_url: Some("https://api-inference.huggingface.co/models/facebook/bart-large-cnn".to_string()),
+            ai_model_url: Some(
+                "https://api-inference.huggingface.co/models/facebook/bart-large-cnn".to_string(),
+            ),
             enable_ai_enhancement: false,
             default_output_dir: Some("colony_uploader".to_string()),
             max_concurrent_downloads: 3,
@@ -155,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
         );
 
     let matches = app.get_matches();
-    
+
     // Disable colors if requested
     if matches.get_flag("no-color") {
         colored::control::set_override(false);
@@ -166,7 +167,11 @@ async fn main() -> anyhow::Result<()> {
     let extensions_str = matches.get_one::<String>("extensions").unwrap();
     let output_dir = matches.get_one::<String>("output-dir").unwrap();
 
-    println!("{} {}", "🏛️".bold(), "Internet Archive Downloader".bold().cyan());
+    println!(
+        "{} {}",
+        "🏛️".bold(),
+        "Internet Archive Downloader".bold().cyan()
+    );
     println!();
 
     // Parse and validate URL
@@ -184,20 +189,32 @@ async fn main() -> anyhow::Result<()> {
         .split(',')
         .map(|s| s.trim().to_lowercase())
         .collect();
-    println!("{} {}", "📁 Extensions:".bold(), extensions.join(", ").yellow());
+    println!(
+        "{} {}",
+        "📁 Extensions:".bold(),
+        extensions.join(", ").yellow()
+    );
 
     // Create output directory structure
     let base_output_dir = PathBuf::from(output_dir);
     let item_dir = base_output_dir.join(&identifier);
-    
+
     if !base_output_dir.exists() {
         fs::create_dir_all(&base_output_dir)?;
-        println!("{} {}", "📂 Created directory:".bold(), base_output_dir.display().to_string().blue());
+        println!(
+            "{} {}",
+            "📂 Created directory:".bold(),
+            base_output_dir.display().to_string().blue()
+        );
     }
-    
+
     if !item_dir.exists() {
         fs::create_dir_all(&item_dir)?;
-        println!("{} {}", "📂 Created directory:".bold(), item_dir.display().to_string().blue());
+        println!(
+            "{} {}",
+            "📂 Created directory:".bold(),
+            item_dir.display().to_string().blue()
+        );
     }
 
     // Initialize HTTP client
@@ -205,9 +222,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Download metadata and files list
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner()
-        .template("{spinner:.green} {msg}")
-        .unwrap());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {msg}")
+            .unwrap(),
+    );
 
     pb.set_message("📥 Downloading metadata...");
     let metadata = download_metadata(&client, &identifier, &item_dir).await?;
@@ -217,19 +236,31 @@ async fn main() -> anyhow::Result<()> {
 
     // Save pod name to file
     let pod_name_file = item_dir.join("pod_name.txt");
-    fs::write(&pod_name_file, &pod_name)?;
-    println!("{} {}", "📝 Pod name saved:".bold(), pod_name_file.display().to_string().blue());
+    fs::write(&pod_name_file, pod_name)?;
+    println!(
+        "{} {}",
+        "📝 Pod name saved:".bold(),
+        pod_name_file.display().to_string().blue()
+    );
 
     pb.set_message("🖼️ Downloading thumbnail...");
     let thumbnail_address = download_thumbnail(&client, &identifier, &item_dir).await?;
     pb.finish_and_clear();
 
-    println!("{} {}", "✅ Downloaded metadata for:".bold(), metadata.title.green());
+    println!(
+        "{} {}",
+        "✅ Downloaded metadata for:".bold(),
+        metadata.title.green()
+    );
     println!("{} {}", "👤 Author:".bold(), metadata.creator.cyan());
 
     // Show thumbnail status
     if let Some(ref thumb_addr) = thumbnail_address {
-        println!("{} {}", "🖼️ Thumbnail:".bold(), format!("ant://{}", thumb_addr).magenta());
+        println!(
+            "{} {}",
+            "🖼️ Thumbnail:".bold(),
+            format!("ant://{thumb_addr}").magenta()
+        );
     } else {
         println!("{} {}", "🖼️ Thumbnail:".bold(), "Not found".yellow());
     }
@@ -258,22 +289,38 @@ async fn main() -> anyhow::Result<()> {
         // Check for AI enhancement: command line flag OR config file setting
         let ai_enhance = matches.get_flag("ai-enhance") || _config.enable_ai_enhancement;
         if ai_enhance {
-            println!("{} {}", "🔍 Enhancing metadata...".bold(), "Trying multiple sources + AI".yellow());
+            println!(
+                "{} {}",
+                "🔍 Enhancing metadata...".bold(),
+                "Trying multiple sources + AI".yellow()
+            );
         } else {
-            println!("{} {}", "🔍 Enhancing metadata...".bold(), "Trying multiple sources".yellow());
+            println!(
+                "{} {}",
+                "🔍 Enhancing metadata...".bold(),
+                "Trying multiple sources".yellow()
+            );
         }
         enhance_metadata(&client, &metadata, &identifier, ai_enhance, &_config).await?
     };
 
     // Filter files by extensions
     let filtered_files = filter_files_by_extensions(&files, &extensions);
-    
+
     if filtered_files.is_empty() {
-        println!("{} No files found with extensions: {}", "⚠️".yellow(), extensions.join(", "));
+        println!(
+            "{} No files found with extensions: {}",
+            "⚠️".yellow(),
+            extensions.join(", ")
+        );
         return Ok(());
     }
 
-    println!("{} Found {} files to download", "📁".bold(), filtered_files.len().to_string().green());
+    println!(
+        "{} Found {} files to download",
+        "📁".bold(),
+        filtered_files.len().to_string().green()
+    );
 
     // Create extension directories and download files
     let mut total_downloaded_size = 0u64;
@@ -283,11 +330,15 @@ async fn main() -> anyhow::Result<()> {
         let ext_dir = item_dir.join(&extension);
         if !ext_dir.exists() {
             fs::create_dir_all(&ext_dir)?;
-            println!("{} {}", "📂 Created directory:".bold(), ext_dir.display().to_string().blue());
+            println!(
+                "{} {}",
+                "📂 Created directory:".bold(),
+                ext_dir.display().to_string().blue()
+            );
         }
 
         for (index, file) in files_for_ext.iter().enumerate() {
-            download_file(&client, &identifier, &file, &ext_dir).await?;
+            download_file(&client, &identifier, file, &ext_dir).await?;
 
             // Validate downloaded file
             let file_path = ext_dir.join(&file.name);
@@ -302,13 +353,27 @@ async fn main() -> anyhow::Result<()> {
             let autonomi_address = calculate_autonomi_address(&file_path)?;
 
             // Create JSON-LD metadata with actual file size, index, and thumbnail
-            let metadata_index = if files_for_ext.len() > 1 { Some(index + 1) } else { None };
-            create_jsonld_metadata(&file, &enhanced_metadata, &autonomi_address, actual_size, metadata_index, &thumbnail_address, &ext_dir).await?;
+            let metadata_index = if files_for_ext.len() > 1 {
+                Some(index + 1)
+            } else {
+                None
+            };
+            create_jsonld_metadata(
+                file,
+                &enhanced_metadata,
+                &autonomi_address,
+                actual_size,
+                metadata_index,
+                &thumbnail_address,
+                &ext_dir,
+            )
+            .await?;
 
-            println!("{} {} -> {}",
+            println!(
+                "{} {} -> {}",
                 "✅".green(),
                 file.name.bold(),
-                format!("ant://{}", autonomi_address).cyan()
+                format!("ant://{autonomi_address}").cyan()
             );
         }
     }
@@ -317,16 +382,32 @@ async fn main() -> anyhow::Result<()> {
     let total_size_mb = total_downloaded_size as f64 / 1_048_576.0; // Convert to MB
 
     println!();
-    println!("{} {}", "📊 Download Summary:".bold().cyan(), "");
-    println!("   {} Files downloaded: {}", "📁".bold(), downloaded_files_count.to_string().green());
-    println!("   {} Total size: {:.2} MB ({} bytes)", "💾".bold(), total_size_mb.to_string().green(), total_downloaded_size.to_string().yellow());
-    println!("   {} Metadata source: {}", "🔍".bold(), enhanced_metadata.source.green());
+    println!("{} ", "📊 Download Summary:".bold().cyan());
+    println!(
+        "   {} Files downloaded: {}",
+        "📁".bold(),
+        downloaded_files_count.to_string().green()
+    );
+    println!(
+        "   {} Total size: {:.2} MB ({} bytes)",
+        "💾".bold(),
+        total_size_mb.to_string().green(),
+        total_downloaded_size.to_string().yellow()
+    );
+    println!(
+        "   {} Metadata source: {}",
+        "🔍".bold(),
+        enhanced_metadata.source.green()
+    );
     if thumbnail_address.is_some() {
         println!("   {} Thumbnail: {}", "🖼️".bold(), "Downloaded".green());
     }
     println!();
-    println!("{} {}", "🎉 Download completed!".bold().green(),
-        format!("Files saved to: {}", item_dir.display()).blue());
+    println!(
+        "{} {}",
+        "🎉 Download completed!".bold().green(),
+        format!("Files saved to: {}", item_dir.display()).blue()
+    );
 
     Ok(())
 }
@@ -363,17 +444,17 @@ async fn download_metadata(
     identifier: &str,
     output_dir: &Path,
 ) -> anyhow::Result<MetadataInfo> {
-    let meta_url = format!("https://archive.org/download/{}/{}_meta.xml", identifier, identifier);
+    let meta_url = format!("https://archive.org/download/{identifier}/{identifier}_meta.xml");
     let response = client.get(&meta_url).send().await?;
-    
+
     if !response.status().is_success() {
         anyhow::bail!("Failed to download metadata: HTTP {}", response.status());
     }
-    
+
     let content = response.text().await?;
-    let meta_file = output_dir.join(format!("{}_meta.xml", identifier));
+    let meta_file = output_dir.join(format!("{identifier}_meta.xml"));
     fs::write(&meta_file, &content)?;
-    
+
     // Parse metadata
     parse_metadata(&content)
 }
@@ -383,7 +464,7 @@ async fn download_files_list(
     identifier: &str,
     output_dir: &Path,
 ) -> anyhow::Result<Vec<FileInfo>> {
-    let files_url = format!("https://archive.org/download/{}/{}_files.xml", identifier, identifier);
+    let files_url = format!("https://archive.org/download/{identifier}/{identifier}_files.xml");
     let response = client.get(&files_url).send().await?;
 
     if !response.status().is_success() {
@@ -391,7 +472,7 @@ async fn download_files_list(
     }
 
     let content = response.text().await?;
-    let files_file = output_dir.join(format!("{}_files.xml", identifier));
+    let files_file = output_dir.join(format!("{identifier}_files.xml"));
     fs::write(&files_file, &content)?;
 
     // Parse files list
@@ -407,11 +488,12 @@ async fn download_thumbnail(
     let thumbnail_formats = ["jpg", "jpeg", "png", "gif"];
 
     for format in &thumbnail_formats {
-        let thumbnail_url = format!("https://archive.org/download/{}/__ia_thumb.{}", identifier, format);
+        let thumbnail_url =
+            format!("https://archive.org/download/{identifier}/__ia_thumb.{format}");
         let response = client.get(&thumbnail_url).send().await?;
 
         if response.status().is_success() {
-            let thumbnail_filename = format!("__ia_thumb.{}", format);
+            let thumbnail_filename = format!("__ia_thumb.{format}");
             let thumbnail_path = output_dir.join(&thumbnail_filename);
 
             // Download the thumbnail
@@ -430,8 +512,8 @@ async fn download_thumbnail(
 }
 
 fn parse_metadata(xml_content: &str) -> anyhow::Result<MetadataInfo> {
-    use quick_xml::events::Event;
     use quick_xml::Reader;
+    use quick_xml::events::Event;
 
     let mut reader = Reader::from_str(xml_content);
     reader.config_mut().trim_text(true);
@@ -481,20 +563,20 @@ fn parse_metadata(xml_content: &str) -> anyhow::Result<MetadataInfo> {
 }
 
 fn parse_files_list(xml_content: &str) -> anyhow::Result<Vec<FileInfo>> {
-    use quick_xml::events::Event;
     use quick_xml::Reader;
-    
+    use quick_xml::events::Event;
+
     let mut reader = Reader::from_str(xml_content);
     reader.config_mut().trim_text(true);
-    
+
     let mut files = Vec::new();
-    
+
     loop {
         match reader.read_event() {
             Ok(Event::Start(ref e)) if e.name().as_ref() == b"file" => {
                 let mut name = String::new();
                 let mut size = 0u64;
-                
+
                 // Parse attributes
                 for attr in e.attributes() {
                     let attr = attr?;
@@ -503,14 +585,16 @@ fn parse_files_list(xml_content: &str) -> anyhow::Result<Vec<FileInfo>> {
                             name = String::from_utf8_lossy(&attr.value).to_string();
                         }
                         b"size" => {
-                            if let Ok(size_str) = String::from_utf8_lossy(&attr.value).parse::<u64>() {
+                            if let Ok(size_str) =
+                                String::from_utf8_lossy(&attr.value).parse::<u64>()
+                            {
                                 size = size_str;
                             }
                         }
                         _ => {}
                     }
                 }
-                
+
                 if !name.is_empty() {
                     if let Some(extension) = Path::new(&name).extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
@@ -527,7 +611,7 @@ fn parse_files_list(xml_content: &str) -> anyhow::Result<Vec<FileInfo>> {
             _ => {}
         }
     }
-    
+
     Ok(files)
 }
 
@@ -589,40 +673,66 @@ async fn enhance_metadata(
 
     // Optional: AI enhancement for description (if enabled)
     if ai_enhance {
-        let model_name = config.ai_model_url.as_ref()
-            .and_then(|url| url.split('/').last())
+        let model_name = config
+            .ai_model_url
+            .as_ref()
+            .and_then(|url| url.split('/').next_back())
             .unwrap_or("default");
 
         match get_ai_enhanced_description(client, &enhanced, config).await {
             Ok(ai_description) => {
                 enhanced.enhanced_description = Some(ai_description);
                 enhanced.source = format!("{} + AI", enhanced.source);
-                println!("{} {} ({})", "✅".green(), "AI enhancement successful".green(), model_name.cyan());
+                println!(
+                    "{} {} ({})",
+                    "✅".green(),
+                    "AI enhancement successful".green(),
+                    model_name.cyan()
+                );
             }
             Err(e) => {
-                println!("{} {} ({}): {}", "⚠️".yellow(), "AI enhancement failed".yellow(), model_name.cyan(), e.to_string().red());
+                println!(
+                    "{} {} ({}): {}",
+                    "⚠️".yellow(),
+                    "AI enhancement failed".yellow(),
+                    model_name.cyan(),
+                    e.to_string().red()
+                );
             }
         }
     }
 
-    println!("{} {}", "✅ Metadata enhanced from:".bold(), enhanced.source.green());
+    println!(
+        "{} {}",
+        "✅ Metadata enhanced from:".bold(),
+        enhanced.source.green()
+    );
     Ok(enhanced)
 }
 
 // Internet Archive detailed metadata
-async fn get_ia_detailed_metadata(client: &Client, identifier: &str) -> anyhow::Result<serde_json::Value> {
-    let url = format!("https://archive.org/metadata/{}", identifier);
+async fn get_ia_detailed_metadata(
+    client: &Client,
+    identifier: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let url = format!("https://archive.org/metadata/{identifier}");
     let response = client.get(&url).send().await?;
 
     if response.status().is_success() {
         let json: serde_json::Value = response.json().await?;
         Ok(json)
     } else {
-        anyhow::bail!("Failed to get IA detailed metadata: HTTP {}", response.status());
+        anyhow::bail!(
+            "Failed to get IA detailed metadata: HTTP {}",
+            response.status()
+        );
     }
 }
 
-fn merge_ia_metadata(mut enhanced: EnhancedMetadata, ia_data: serde_json::Value) -> EnhancedMetadata {
+fn merge_ia_metadata(
+    mut enhanced: EnhancedMetadata,
+    ia_data: serde_json::Value,
+) -> EnhancedMetadata {
     if let Some(metadata) = ia_data.get("metadata") {
         // Extract subjects/tags
         if let Some(subjects) = metadata.get("subject") {
@@ -657,22 +767,31 @@ fn merge_ia_metadata(mut enhanced: EnhancedMetadata, ia_data: serde_json::Value)
 }
 
 // Book metadata from Open Library
-async fn get_book_metadata(client: &Client, enhanced: &EnhancedMetadata) -> anyhow::Result<serde_json::Value> {
+async fn get_book_metadata(
+    client: &Client,
+    enhanced: &EnhancedMetadata,
+) -> anyhow::Result<serde_json::Value> {
     // Try searching by title and author
     let query = format!("{} {}", enhanced.title, enhanced.creator);
     let encoded_query = urlencoding::encode(&query);
-    let url = format!("https://openlibrary.org/search.json?q={}&limit=1", encoded_query);
+    let url = format!("https://openlibrary.org/search.json?q={encoded_query}&limit=1");
 
     let response = client.get(&url).send().await?;
     if response.status().is_success() {
         let json: serde_json::Value = response.json().await?;
         Ok(json)
     } else {
-        anyhow::bail!("Failed to get Open Library metadata: HTTP {}", response.status());
+        anyhow::bail!(
+            "Failed to get Open Library metadata: HTTP {}",
+            response.status()
+        );
     }
 }
 
-fn merge_book_metadata(mut enhanced: EnhancedMetadata, book_data: serde_json::Value) -> EnhancedMetadata {
+fn merge_book_metadata(
+    mut enhanced: EnhancedMetadata,
+    book_data: serde_json::Value,
+) -> EnhancedMetadata {
     if let Some(docs) = book_data.get("docs").and_then(|d| d.as_array()) {
         if let Some(book) = docs.first() {
             // Enhanced description from Open Library
@@ -719,43 +838,64 @@ fn merge_book_metadata(mut enhanced: EnhancedMetadata, book_data: serde_json::Va
 }
 
 // Movie metadata (stub for now - could integrate with TMDB)
-async fn get_movie_metadata(_client: &Client, _enhanced: &EnhancedMetadata) -> anyhow::Result<serde_json::Value> {
+async fn get_movie_metadata(
+    _client: &Client,
+    _enhanced: &EnhancedMetadata,
+) -> anyhow::Result<serde_json::Value> {
     // TODO: Implement TMDB API integration
     anyhow::bail!("Movie metadata enhancement not yet implemented");
 }
 
-fn merge_movie_metadata(enhanced: EnhancedMetadata, _movie_data: serde_json::Value) -> EnhancedMetadata {
+fn merge_movie_metadata(
+    enhanced: EnhancedMetadata,
+    _movie_data: serde_json::Value,
+) -> EnhancedMetadata {
     // TODO: Implement movie metadata merging
     enhanced
 }
 
 // Music metadata (stub for now - could integrate with MusicBrainz)
-async fn get_music_metadata(_client: &Client, _enhanced: &EnhancedMetadata) -> anyhow::Result<serde_json::Value> {
+async fn get_music_metadata(
+    _client: &Client,
+    _enhanced: &EnhancedMetadata,
+) -> anyhow::Result<serde_json::Value> {
     // TODO: Implement MusicBrainz API integration
     anyhow::bail!("Music metadata enhancement not yet implemented");
 }
 
-fn merge_music_metadata(enhanced: EnhancedMetadata, _music_data: serde_json::Value) -> EnhancedMetadata {
+fn merge_music_metadata(
+    enhanced: EnhancedMetadata,
+    _music_data: serde_json::Value,
+) -> EnhancedMetadata {
     // TODO: Implement music metadata merging
     enhanced
 }
 
 // Wikipedia metadata
-async fn get_wikipedia_metadata(client: &Client, enhanced: &EnhancedMetadata) -> anyhow::Result<serde_json::Value> {
+async fn get_wikipedia_metadata(
+    client: &Client,
+    enhanced: &EnhancedMetadata,
+) -> anyhow::Result<serde_json::Value> {
     // Search Wikipedia for the title
     let query = urlencoding::encode(&enhanced.title);
-    let url = format!("https://en.wikipedia.org/api/rest_v1/page/summary/{}", query);
+    let url = format!("https://en.wikipedia.org/api/rest_v1/page/summary/{query}");
 
     let response = client.get(&url).send().await?;
     if response.status().is_success() {
         let json: serde_json::Value = response.json().await?;
         Ok(json)
     } else {
-        anyhow::bail!("Failed to get Wikipedia metadata: HTTP {}", response.status());
+        anyhow::bail!(
+            "Failed to get Wikipedia metadata: HTTP {}",
+            response.status()
+        );
     }
 }
 
-fn merge_wikipedia_metadata(mut enhanced: EnhancedMetadata, wiki_data: serde_json::Value) -> EnhancedMetadata {
+fn merge_wikipedia_metadata(
+    mut enhanced: EnhancedMetadata,
+    wiki_data: serde_json::Value,
+) -> EnhancedMetadata {
     // Extract Wikipedia summary if we don't have a good description
     if enhanced.enhanced_description.is_none() {
         if let Some(extract) = wiki_data.get("extract").and_then(|e| e.as_str()) {
@@ -770,7 +910,11 @@ fn merge_wikipedia_metadata(mut enhanced: EnhancedMetadata, wiki_data: serde_jso
 }
 
 // AI enhancement using Hugging Face Inference API (free tier)
-async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadata, config: &Config) -> anyhow::Result<String> {
+async fn get_ai_enhanced_description(
+    client: &Client,
+    enhanced: &EnhancedMetadata,
+    config: &Config,
+) -> anyhow::Result<String> {
     // Use configurable AI model URL from config, with fallback to default
     let default_model_url = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn";
     let api_url = config.ai_model_url.as_deref().unwrap_or(default_model_url);
@@ -778,9 +922,7 @@ async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadat
     // Prepare the text to summarize (combine title, author, and existing description)
     let input_text = format!(
         "Book: {} by {}. Description: {}",
-        enhanced.title,
-        enhanced.creator,
-        enhanced.description
+        enhanced.title, enhanced.creator, enhanced.description
     );
 
     // Limit input text to avoid API limits
@@ -800,20 +942,26 @@ async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadat
     });
 
     // Check if we have an API key
-    let api_key = config.huggingface_api_key.as_ref()
+    let api_key = config
+        .huggingface_api_key
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Hugging Face API key not found in config"))?;
 
     let response = client
         .post(api_url)
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {api_key}"))
         .json(&payload)
         .send()
         .await?;
 
     if response.status().is_success() {
         let result: serde_json::Value = response.json().await?;
-        if let Some(summary) = result.get(0).and_then(|s| s.get("summary_text")).and_then(|s| s.as_str()) {
+        if let Some(summary) = result
+            .get(0)
+            .and_then(|s| s.get("summary_text"))
+            .and_then(|s| s.as_str())
+        {
             Ok(summary.to_string())
         } else {
             anyhow::bail!("Unexpected AI API response format");
@@ -823,7 +971,10 @@ async fn get_ai_enhanced_description(client: &Client, enhanced: &EnhancedMetadat
     }
 }
 
-fn filter_files_by_extensions<'a>(files: &'a [FileInfo], extensions: &[String]) -> Vec<&'a FileInfo> {
+fn filter_files_by_extensions<'a>(
+    files: &'a [FileInfo],
+    extensions: &[String],
+) -> Vec<&'a FileInfo> {
     files
         .iter()
         .filter(|file| extensions.contains(&file.extension))
@@ -850,7 +1001,7 @@ async fn download_file(
     output_dir: &Path,
 ) -> anyhow::Result<()> {
     let encoded_name = urlencoding::encode(&file.name);
-    let file_url = format!("https://archive.org/download/{}/{}", identifier, encoded_name);
+    let file_url = format!("https://archive.org/download/{identifier}/{encoded_name}");
 
     // Use actual file size if available, otherwise show indeterminate progress
     let pb = if file.size > 0 {
@@ -869,7 +1020,11 @@ async fn download_file(
 
     if !response.status().is_success() {
         pb.finish_and_clear();
-        anyhow::bail!("Failed to download file {}: HTTP {}", file.name, response.status());
+        anyhow::bail!(
+            "Failed to download file {}: HTTP {}",
+            file.name,
+            response.status()
+        );
     }
 
     let file_path = output_dir.join(&file.name);
@@ -892,7 +1047,7 @@ fn validate_downloaded_file(file_path: &Path, expected_size: Option<u64>) -> any
 
     if let Some(expected) = expected_size {
         if actual_size != expected && expected > 0 {
-            println!("⚠️  File size mismatch: expected {} bytes, got {} bytes", expected, actual_size);
+            println!("⚠️  File size mismatch: expected {expected} bytes, got {actual_size} bytes");
         }
     }
 
@@ -936,7 +1091,8 @@ async fn create_jsonld_metadata(
     };
 
     // Use enhanced description if available, otherwise fall back to original
-    let description = metadata.enhanced_description
+    let description = metadata
+        .enhanced_description
         .as_ref()
         .unwrap_or(&metadata.description)
         .clone();
@@ -985,7 +1141,7 @@ async fn create_jsonld_metadata(
 
     // Create filename with index if there are multiple files of the same type
     let metadata_filename = if let Some(index) = metadata_index {
-        format!("metadata_{}.json", index)
+        format!("metadata_{index}.json")
     } else {
         "metadata.json".to_string()
     };

@@ -2027,6 +2027,7 @@ dependencies = [
  "jsonwebtoken",
  "quick-xml 0.36.2",
  "reqwest",
+ "ruint",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2044,9 +2045,9 @@ dependencies = [
 
 [[package]]
 name = "colonylib"
-version = "0.5.3"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0051a5655a2815532ba1c1eb60a6ed77f65426f98f53a4a7aa6cdd2d627c1c2d"
+checksum = "23d22efe8f08d08918eb29b2ad4ef61710dbe0cac6a033a44fb30657cffa3e24"
 dependencies = [
  "ant-networking",
  "autonomi",
@@ -2058,11 +2059,13 @@ dependencies = [
  "dirs",
  "futures",
  "hex 0.4.3",
+ "k256",
  "oxigraph",
  "oxjsonld",
  "oxttl",
  "serde",
  "serde_json",
+ "sha3 0.10.8",
  "sn_bls_ckd",
  "sn_curv",
  "thiserror 2.0.12",
@@ -4004,6 +4007,7 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2 0.10.9",
+ "signature 2.2.0",
 ]
 
 [[package]]
