@@ -161,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
         colored::control::set_override(false);
     }
 
-    let _pod = matches.get_one::<String>("pod").unwrap(); // Will be used by colony_uploader.rs
+    let pod_name = matches.get_one::<String>("pod").unwrap();
     let url_str = matches.get_one::<String>("url").unwrap();
     let extensions_str = matches.get_one::<String>("extensions").unwrap();
     let output_dir = matches.get_one::<String>("output-dir").unwrap();
@@ -214,6 +214,11 @@ async fn main() -> anyhow::Result<()> {
 
     pb.set_message("📋 Downloading files list...");
     let files = download_files_list(&client, &identifier, &item_dir).await?;
+
+    // Save pod name to file
+    let pod_name_file = item_dir.join("pod_name.txt");
+    fs::write(&pod_name_file, &pod_name)?;
+    println!("{} {}", "📝 Pod name saved:".bold(), pod_name_file.display().to_string().blue());
 
     pb.set_message("🖼️ Downloading thumbnail...");
     let thumbnail_address = download_thumbnail(&client, &identifier, &item_dir).await?;
