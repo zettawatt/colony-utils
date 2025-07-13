@@ -1700,7 +1700,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse command line arguments
     let matches = Command::new("colonyd")
-        .version("0.2.5")
+        .version("0.2.6")
         .about("A server hosting a REST endpoint for interacting with colonylib")
         .arg(
             Arg::new("port")

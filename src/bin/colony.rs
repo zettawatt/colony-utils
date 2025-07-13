@@ -93,6 +93,50 @@ struct RenamePodRequest {
     name: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct CreateWalletRequest {
+    name: String,
+    private_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RenameWalletRequest {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SetActiveWalletRequest {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct WalletResponse {
+    name: String,
+    address: String,
+    is_active: bool,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileDownloadRequest {
+    address: String,
+    destination: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileUploadRequest {
+    file_path: String,
+    metadata: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileResponse {
+    file_path: String,
+    address: Option<String>,
+    size: u64,
+    timestamp: String,
+}
+
 struct Config {
     server: String,
     port: u16,
@@ -775,7 +819,7 @@ fn print_browse_results_table(bindings_array: &[Value]) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony")
-        .version("0.2.5")
+        .version("0.2.6")
         .author("Chuck McClish")
         .about("A colonylib CLI for interacting with the colonyd daemon")
         .arg(
@@ -972,6 +1016,22 @@ async fn main() -> anyhow::Result<()> {
                                 .help("Reference to add")
                                 .required(true),
                         ),
+                )
+                .subcommand(
+                    Command::new("wallet")
+                        .about("Add a new wallet")
+                        .arg(
+                            Arg::new("name")
+                                .value_name("NAME")
+                                .help("Name for the new wallet")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("private-key")
+                                .value_name("KEY")
+                                .help("Private key for the wallet")
+                                .required(true),
+                        ),
                 ),
         )
         .subcommand(
@@ -1000,6 +1060,14 @@ async fn main() -> anyhow::Result<()> {
                                 .help("Reference to remove")
                                 .required(true),
                         ),
+                )
+                .subcommand(
+                    Command::new("wallet").about("Remove a wallet").arg(
+                        Arg::new("name")
+                            .value_name("WALLET_NAME")
+                            .help("Wallet name to remove")
+                            .required(true),
+                    ),
                 ),
         )
         .subcommand(
@@ -1018,6 +1086,22 @@ async fn main() -> anyhow::Result<()> {
                             Arg::new("name")
                                 .value_name("NEW_NAME")
                                 .help("New name for the pod")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
+                    Command::new("wallet")
+                        .about("Rename a wallet")
+                        .arg(
+                            Arg::new("current-name")
+                                .value_name("CURRENT_NAME")
+                                .help("Current wallet name")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("new-name")
+                                .value_name("NEW_NAME")
+                                .help("New name for the wallet")
                                 .required(true),
                         ),
                 ),
@@ -1042,6 +1126,62 @@ async fn main() -> anyhow::Result<()> {
                         .value_name("DATA")
                         .help("JSON data to store")
                         .required(true),
+                ),
+        )
+        .subcommand(
+            Command::new("wallets").about("💰 List all wallets").arg(
+                Arg::new("json")
+                    .long("json")
+                    .help("Display raw JSON output instead of formatted table")
+                    .action(clap::ArgAction::SetTrue),
+            ),
+        )
+        .subcommand(
+            Command::new("wallet")
+                .about("💳 Wallet operations")
+                .subcommand(
+                    Command::new("get").about("Get the active wallet"),
+                )
+                .subcommand(
+                    Command::new("set")
+                        .about("Set the active wallet")
+                        .arg(
+                            Arg::new("name")
+                                .value_name("NAME")
+                                .help("Wallet name to set as active")
+                                .required(true),
+                        ),
+                ),
+        )
+        .subcommand(
+            Command::new("file")
+                .about("📁 File operations")
+                .subcommand(
+                    Command::new("download")
+                        .about("Download a file from URL")
+                        .arg(
+                            Arg::new("url")
+                                .value_name("URL")
+                                .help("URL to download from")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("destination")
+                                .short('d')
+                                .long("destination")
+                                .value_name("PATH")
+                                .help("Local destination path"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("upload")
+                        .about("Upload a file to Autonomi")
+                        .arg(
+                            Arg::new("file")
+                                .value_name("FILE_PATH")
+                                .help("Path to file to upload")
+                                .required(true),
+                        ),
                 ),
         );
 
@@ -1077,6 +1217,15 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(("put", sub_matches)) => {
             handle_put(&config, sub_matches).await?;
+        }
+        Some(("wallets", sub_matches)) => {
+            handle_wallets(&config, sub_matches).await?;
+        }
+        Some(("wallet", sub_matches)) => {
+            handle_wallet(&config, sub_matches).await?;
+        }
+        Some(("file", sub_matches)) => {
+            handle_file(&config, sub_matches).await?;
         }
         _ => {
             println!(
@@ -1666,6 +1815,39 @@ async fn handle_add(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
                 std::process::exit(1);
             }
         }
+        Some(("wallet", sub_matches)) => {
+            let name = sub_matches.get_one::<String>("name").unwrap();
+            let private_key = sub_matches.get_one::<String>("private-key").unwrap();
+            println!("{} {}", "💳 Adding new wallet:".cyan(), name.yellow());
+
+            let wallet_request = CreateWalletRequest {
+                name: name.clone(),
+                private_key: private_key.clone(),
+            };
+
+            let response = client
+                .post(format!("{base_url}/colony-0/wallets"))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .json(&wallet_request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let wallet: WalletResponse = response.json().await?;
+                println!("\n{}", "✅ Wallet created successfully!".green().bold());
+                println!(
+                    "💳 {} {} ({})",
+                    "Name:".blue(),
+                    wallet.name.yellow().bold(),
+                    wallet.address.cyan()
+                );
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to create wallet:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
         _ => {
             println!(
                 "{}",
@@ -1734,6 +1916,24 @@ async fn handle_rm(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> 
                 std::process::exit(1);
             }
         }
+        Some(("wallet", sub_matches)) => {
+            let wallet_name = sub_matches.get_one::<String>("name").unwrap();
+            println!("{} {}", "🗑️ Removing wallet:".cyan(), wallet_name.yellow());
+
+            let response = client
+                .delete(format!("{base_url}/colony-0/wallets/{wallet_name}"))
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                println!("\n{}", "✅ Wallet removed successfully!".green().bold());
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to remove wallet:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
         _ => {
             println!(
                 "{}",
@@ -1779,6 +1979,36 @@ async fn handle_rename(config: &Config, matches: &ArgMatches) -> anyhow::Result<
             } else {
                 let error_text = response.text().await?;
                 println!("{} {}", "❌ Failed to rename pod:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        Some(("wallet", sub_matches)) => {
+            let current_name = sub_matches.get_one::<String>("current-name").unwrap();
+            let new_name = sub_matches.get_one::<String>("new-name").unwrap();
+            println!(
+                "{} {} to {}",
+                "✏️ Renaming wallet".cyan(),
+                current_name.yellow(),
+                new_name.yellow()
+            );
+
+            let rename_request = RenameWalletRequest {
+                name: new_name.clone(),
+            };
+
+            let response = client
+                .post(format!("{base_url}/colony-0/wallets/{current_name}"))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .json(&rename_request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                println!("\n{}", "✅ Wallet renamed successfully!".green().bold());
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to rename wallet:".red(), error_text);
                 std::process::exit(1);
             }
         }
@@ -1839,4 +2069,243 @@ async fn handle_put(config: &Config, matches: &ArgMatches) -> anyhow::Result<()>
     }
 
     Ok(())
+}
+
+async fn handle_wallets(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
+    let token = get_jwt_token(config).await?;
+    let client = Client::new();
+    let base_url = config.base_url();
+
+    println!("{}", "💰 Listing wallets...".cyan());
+
+    let response = client
+        .get(format!("{base_url}/colony-0/wallets"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let wallets: Value = response.json().await?;
+
+        if matches.get_flag("json") {
+            print_json_pretty(&wallets);
+        } else {
+            display_wallets_table(&wallets);
+        }
+    } else {
+        let error_text = response.text().await?;
+        println!("{} {}", "❌ Failed to list wallets:".red(), error_text);
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+async fn handle_wallet(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
+    let token = get_jwt_token(config).await?;
+    let client = Client::new();
+    let base_url = config.base_url();
+
+    match matches.subcommand() {
+        Some(("get", _)) => {
+            println!("{}", "💳 Getting active wallet...".cyan());
+
+            let response = client
+                .get(format!("{base_url}/colony-0/wallet"))
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let wallet: WalletResponse = response.json().await?;
+                println!("\n{}", "✅ Active wallet:".green().bold());
+                println!(
+                    "💳 {} {} ({})",
+                    "Name:".blue(),
+                    wallet.name.yellow().bold(),
+                    wallet.address.cyan()
+                );
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to get active wallet:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        Some(("set", sub_matches)) => {
+            let name = sub_matches.get_one::<String>("name").unwrap();
+            println!("{} {}", "💳 Setting active wallet to:".cyan(), name.yellow());
+
+            let request = SetActiveWalletRequest {
+                name: name.clone(),
+            };
+
+            let response = client
+                .post(format!("{base_url}/colony-0/wallet"))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                println!("\n{}", "✅ Active wallet set successfully!".green().bold());
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to set active wallet:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            println!(
+                "{}",
+                "❌ No wallet subcommand specified. Use --help for usage information.".red()
+            );
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()> {
+    let client = Client::new();
+    let base_url = config.base_url();
+
+    match matches.subcommand() {
+        Some(("download", sub_matches)) => {
+            let address = sub_matches.get_one::<String>("url").unwrap();
+            let destination = sub_matches.get_one::<String>("destination").cloned();
+
+            println!("{} {}", "📥 Starting file download from:".cyan(), address.yellow());
+
+            let request = FileDownloadRequest {
+                address: address.clone(),
+                destination,
+            };
+
+            let response = client
+                .post(format!("{base_url}/colony-0/file/download"))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let job_response: JobResponse = response.json().await?;
+                println!("📋 Job ID: {}", job_response.job_id.cyan());
+
+                // Wait for job completion
+                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "File download").await?;
+
+                println!("\n{}", "✅ File download completed!".green().bold());
+                if let Some(file_info) = result.as_object() {
+                    if let Some(file_path) = file_info.get("file_path").and_then(|v| v.as_str()) {
+                        println!("📁 {} {}", "Downloaded to:".blue(), file_path.yellow());
+                    }
+                }
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to start file download:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        Some(("upload", sub_matches)) => {
+            let token = get_jwt_token(config).await?;
+            let file_path = sub_matches.get_one::<String>("file").unwrap();
+
+            println!("{} {}", "📤 Starting file upload:".cyan(), file_path.yellow());
+
+            let request = FileUploadRequest {
+                file_path: file_path.clone(),
+                metadata: None,
+            };
+
+            let response = client
+                .post(format!("{base_url}/colony-0/file/upload"))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let job_response: JobResponse = response.json().await?;
+                println!("📋 Job ID: {}", job_response.job_id.cyan());
+
+                // Wait for job completion and display cost information
+                let token = get_jwt_token(config).await?;
+                let result = wait_for_job_completion(config, &token, &job_response.job_id, "File upload").await?;
+
+                println!("\n{}", "✅ File upload completed!".green().bold());
+                if let Some(file_info) = result.as_object() {
+                    if let Some(address) = file_info.get("address").and_then(|v| v.as_str()) {
+                        println!("🌐 {} {}", "Autonomi Address:".blue(), address.cyan());
+                    }
+                    if let Some(size) = file_info.get("size").and_then(|v| v.as_u64()) {
+                        println!("📏 {} {} bytes", "File Size:".blue(), size.to_string().yellow());
+                    }
+
+                    // Display actual cost information from the API
+                    if let Some(ant_cost) = file_info.get("ant_cost") {
+                        println!("🪙 {} {} ANT", "ANT Tokens Used:".blue(), ant_cost.to_string().yellow());
+                    }
+                    if let Some(gas_cost) = file_info.get("gas_cost") {
+                        println!("⛽ {} {} ETH", "ETH Gas Paid:".blue(), gas_cost.to_string().yellow());
+                    }
+                }
+            } else {
+                let error_text = response.text().await?;
+                println!("{} {}", "❌ Failed to start file upload:".red(), error_text);
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            println!(
+                "{}",
+                "❌ No file subcommand specified. Use --help for usage information.".red()
+            );
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+fn display_wallets_table(wallets: &Value) {
+    if let Some(wallet_array) = wallets.as_array() {
+        if wallet_array.is_empty() {
+            println!("{}", "📭 No wallets found.".yellow());
+            return;
+        }
+
+        println!("\n{}", "💰 Wallets:".green().bold());
+        println!(
+            "{:<20} {:<45} {:<8}",
+            "Name".blue().bold(),
+            "Address".blue().bold(),
+            "Active".blue().bold()
+        );
+        println!("{}", "─".repeat(75).blue());
+
+        for wallet in wallet_array {
+            if let (Some(name), Some(address), Some(is_active)) = (
+                wallet.get("name").and_then(|v| v.as_str()),
+                wallet.get("address").and_then(|v| v.as_str()),
+                wallet.get("is_active").and_then(|v| v.as_bool()),
+            ) {
+                let active_indicator = if is_active { "✅ Yes".green() } else { "❌ No".red() };
+                let name_display = if is_active { name.yellow().bold() } else { name.white() };
+
+                println!(
+                    "{:<20} {:<45} {}",
+                    name_display,
+                    address.cyan(),
+                    active_indicator
+                );
+            }
+        }
+        println!();
+    } else {
+        println!("{}", "❌ Invalid wallet data format".red());
+    }
 }
