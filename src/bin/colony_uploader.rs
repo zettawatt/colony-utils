@@ -326,7 +326,6 @@ impl DirectoryProcessor {
     ) -> Result<String, String> {
         let token = self.token.lock().await.clone();
         let start_time = Instant::now();
-        let mut last_progress = 0.0;
 
         loop {
             let response = self
@@ -348,35 +347,9 @@ impl DirectoryProcessor {
                 .map_err(|e| format!("Failed to parse job status: {e}"))?;
 
             // Update progress if available
-            if let Some(progress) = job_status.job.progress {
-                let progress_percent = (progress * 100.0) as u64;
-                pb.set_position(progress_percent);
-
-                // Calculate estimated time remaining
-                let elapsed = start_time.elapsed();
-                if progress > 0.0 && progress > last_progress {
-                    let estimated_total = elapsed.as_secs_f64() / progress;
-                    let remaining = estimated_total - elapsed.as_secs_f64();
-
-                    if remaining > 0.0 {
-                        let remaining_str = if remaining > 60.0 {
-                            format!("{:.1}m", remaining / 60.0)
-                        } else {
-                            format!("{remaining:.0}s")
-                        };
-                        pb.set_message(format!(
-                            "📤 {} ({:.1}% - ETA: {})",
-                            filename,
-                            progress * 100.0,
-                            remaining_str
-                        ));
-                    } else {
-                        pb.set_message(format!("📤 {} ({:.1}%)", filename, progress * 100.0));
-                    }
-                } else {
-                    pb.set_message(format!("📤 {} ({:.1}%)", filename, progress * 100.0));
-                }
-                last_progress = progress;
+            if let Some(_progress) = job_status.job.progress {
+                // Don't show percentages, just update the message with current activity
+                pb.set_message(format!("📤 {filename}"));
             } else {
                 // No progress info, just show status
                 pb.set_message(format!("📤 {} ({})", filename, job_status.job.status));
@@ -384,7 +357,7 @@ impl DirectoryProcessor {
 
             match job_status.job.status.as_str() {
                 "completed" => {
-                    pb.set_position(100);
+                    // Don't set position on spinner progress bars
                     if let Some(result) = job_status.job.result {
                         if let Some(file_response) = result.as_object() {
                             // Extract cost information and update stats
@@ -512,11 +485,6 @@ impl DirectoryProcessor {
             "{}/colony-0/pods/{}/{}",
             self.config.base_url, encoded_pod_name, encoded_subject
         );
-
-        // Debug output
-        println!("🔍 Uploading to URL: {url}");
-        println!("🔍 Pod name: '{pod_name}'");
-        println!("🔍 Subject: '{subject}'");
 
         let response = self
             .client
@@ -817,7 +785,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     main_pb.finish_with_message("All directories processed");
-    println!();
 
     // Calculate total time and update stats
     let end_time = std::time::Instant::now();
@@ -825,10 +792,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Get final wallet balance for accurate cost calculation
     let final_balance = match get_wallet_balance(&client, &config, &token.lock().await).await {
-        Ok(balance) => {
-            println!("{} Final wallet balance: {:.6} ETH", "💰".bold(), balance);
-            Some(balance)
-        }
+        Ok(balance) => Some(balance),
         Err(e) => {
             eprintln!(
                 "{} Warning: Could not get final wallet balance: {}",
@@ -851,33 +815,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Upload metadata to Autonomi if we had any successes
-    if stats.successful_directories > 0 {
-        println!(
-            "{} {}",
-            "📤".bold(),
-            "Uploading metadata to Autonomi...".yellow()
-        );
-
+    let metadata_uploaded = if stats.successful_directories > 0 {
         match upload_metadata_to_autonomi(&client, &config, &token).await {
-            Ok(()) => {
-                println!(
-                    "{} {}",
-                    "✅".green(),
-                    "Metadata uploaded to Autonomi successfully".green()
-                );
-            }
+            Ok(()) => true,
             Err(e) => {
                 eprintln!(
                     "{} Failed to upload metadata to Autonomi: {}",
                     "❌".red(),
                     e
                 );
+                false
             }
         }
-    }
+    } else {
+        false
+    };
 
     // Display final statistics
-    display_final_stats(&stats);
+    display_final_stats(&stats, final_balance, metadata_uploaded);
 
     Ok(())
 }
@@ -988,7 +943,7 @@ fn format_duration(duration: std::time::Duration) -> String {
     }
 }
 
-fn display_final_stats(stats: &UploadStats) {
+fn display_final_stats(stats: &UploadStats, final_balance: Option<f64>, metadata_uploaded: bool) {
     println!();
     println!("{} {}", "📊".bold(), "Upload Summary:".bold().cyan());
     println!(
@@ -1016,20 +971,30 @@ fn display_final_stats(stats: &UploadStats) {
         );
     }
 
-    // TODO: Add actual cost reporting when Autonomi API is integrated
-    if stats.total_cost_ant > 0.0 {
+    // Display costs (including when they're 0)
+    println!(
+        "   {} Total cost (ANT): {:.6}",
+        "💰".bold(),
+        stats.total_cost_ant.to_string().yellow()
+    );
+    println!(
+        "   {} Total cost (ETH): {:.6}",
+        "⛽".bold(),
+        stats.total_cost_eth.to_string().yellow()
+    );
+
+    // Display final balance if available
+    if let Some(balance) = final_balance {
         println!(
-            "   {} Total cost (ANT): {:.6}",
+            "   {} Final wallet balance: {:.6} ETH",
             "💰".bold(),
-            stats.total_cost_ant.to_string().yellow()
+            balance.to_string().green()
         );
     }
-    if stats.total_cost_eth > 0.0 {
-        println!(
-            "   {} Total cost (ETH): {:.6}",
-            "⛽".bold(),
-            stats.total_cost_eth.to_string().yellow()
-        );
+
+    // Display metadata upload status
+    if metadata_uploaded {
+        println!("   {} Metadata uploaded to Autonomi", "📤".bold());
     }
 
     // Display total time
