@@ -471,7 +471,7 @@ async fn main() -> anyhow::Result<()> {
                 .long("threads")
                 .value_name("THREADS")
                 .help("Number of uploader directories to process in parallel")
-                .default_value("10"),
+                .default_value("1"),
         )
         .arg(
             Arg::new("keep")
