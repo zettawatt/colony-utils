@@ -4,7 +4,7 @@ A collection of utilities for interacting with the [colonylib](https://github.co
 
 ## 📦 Components
 
-This repository contains a single Rust crate called `colony-utils` that provides two binary executables for managing pods and metadata on the Autonomi network:
+This repository contains a single Rust crate called `colony-utils` that provides four binary executables for managing pods and metadata on the Autonomi network:
 
 ### 🚀 `colonyd` - REST API Server
 A high-performance server that implements the colonylib public APIs as REST endpoints.
@@ -27,7 +27,33 @@ A user-friendly CLI tool for interacting with the colonyd daemon.
 - 📦 Pod management (create, list, upload, refresh)
 - 🔗 Reference management (add/remove pod references)
 - 📝 Subject data operations
+- 💰 Wallet management (add, list, set active, check balance)
+- 📁 File operations (upload/download to/from Autonomi)
 - 🌐 Environment variable support for configuration
+
+### 📥 `ia_downloader` - Internet Archive Downloader
+A specialized tool for downloading content from the Internet Archive and preparing it for upload to Autonomi.
+
+**Key Features:**
+- 🏛️ Downloads files from Internet Archive URLs with specified file extensions
+- 🔍 Enhanced metadata extraction using multiple sources (Internet Archive, external APIs, AI)
+- 📊 Progress tracking with detailed download statistics
+- 🖼️ Automatic thumbnail downloading and processing
+- 📝 Generates JSON-LD metadata using schema.org vocabulary
+- 🎯 Configurable AI-powered metadata enhancement
+- 📁 Organized output structure for colony_uploader integration
+
+### 📤 `colony_uploader` - Bulk Upload Tool
+A high-performance tool for uploading downloaded Internet Archive content to the Autonomi network via colonyd.
+
+**Key Features:**
+- ⚡ Multi-threaded parallel processing of upload directories
+- 📊 Real-time progress tracking with detailed statistics
+- 💰 Cost tracking (ANT tokens and ETH gas fees)
+- 🔄 Automatic JWT token refresh for long-running operations
+- 📝 Metadata upload to colony pods with proper JSON-LD formatting
+- 🧹 Optional cleanup of processed directories
+- 📈 Comprehensive upload statistics and timing information
 
 ## 🚀 Quick Start
 
@@ -48,27 +74,37 @@ There are 3 options: directly install binaries (linux only), install from crates
    # Linux (Desktop)
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-unknown-linux-musl
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-unknown-linux-musl
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/ia_downloader-x86_64-unknown-linux-musl
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony_uploader-x86_64-unknown-linux-musl
 
    # macOS (Intel CPU - Older Macs)
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-apple-darwin
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/ia_downloader-x86_64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony_uploader-x86_64-apple-darwin
 
    # macOS (Apple Silicon - Newer Macs)
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-aarch64-apple-darwin
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-aarch64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/ia_downloader-aarch64-apple-darwin
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony_uploader-aarch64-apple-darwin
 
    # Windows
    # NOTE: Windows will complain about this binary being 'unsafe'. Microsoft wants developers to pay for a certificate.
    # You can ignore this warning.
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colonyd-x86_64-pc-windows-msvc.exe -outfile colonyd
    wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony-x86_64-pc-windows-msvc.exe -outfile colony
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/ia_downloader-x86_64-pc-windows-msvc.exe -outfile ia_downloader
+   wget https://github.com/zettawatt/colony-utils/releases/latest/download/colony_uploader-x86_64-pc-windows-msvc.exe -outfile colony_uploader
    ```
 
 2. **Make executable and move to PATH (Linux/macOS):**
    ```bash
-   chmod +x colonyd-* colony-*
+   chmod +x colonyd-* colony-* ia_downloader-* colony_uploader-*
    sudo mv colonyd-* /usr/local/bin/colonyd
    sudo mv colony-* /usr/local/bin/colony
+   sudo mv ia_downloader-* /usr/local/bin/ia_downloader
+   sudo mv colony_uploader-* /usr/local/bin/colony_uploader
    ```
 
 #### From crates.io
@@ -95,6 +131,8 @@ cargo install colony-utils
    ```bash
    sudo mv target/release/colonyd /usr/local/bin/
    sudo mv target/release/colony /usr/local/bin/
+   sudo mv target/release/ia_downloader /usr/local/bin/
+   sudo mv target/release/colony_uploader /usr/local/bin/
    ```
 
 ### Running the Daemon
@@ -262,11 +300,38 @@ colony rm ref <pod-address> <reference>
 colony put <pod-address> <subject> <JSON-LD data string>
 ```
 
+**Wallet Management:**
+```bash
+# List all wallets
+colony wallets
+
+# Add a new wallet
+colony add wallet "my-wallet" <private-key>
+
+# Get active wallet
+colony wallet get
+
+# Set active wallet
+colony wallet set "my-wallet"
+
+# Check active wallet balance
+colony wallet balance
+```
+
+**File Operations:**
+```bash
+# Upload file to Autonomi
+colony file upload /path/to/file.txt
+
+# Download file from Autonomi
+colony file download <autonomi-address> /path/to/save/file.txt
+```
+
 #### Environment Variables
 
 - `COLONYCLI_SERVER` - Default server URL
 - `COLONYCLI_PORT` - Default server port
-- `COLONY_PASSWORD` - Keystore password (avoids interactive prompts for protected operations)
+- `COLONY_PASSWORD` - Keystore password (avoids interactive prompts for protected operations) NOT YET IMPLEMENTED
 
 #### Examples
 
@@ -286,7 +351,7 @@ colony put 8cca45fa078bc86f0861e23781632c2c3bfbd2012e259cf7c2b1f5025f3789ceb0910
         "@id": "ant://c859818c623ce4fc0899c2ab43061b19caa0b0598eec35ef309dbe50c8af8d59",\
         "schema:name": "BegBlag.mp3",\
         "schema:description": "Beg Blag and Steal",\
-        "schema:contentSize": "3MB"\
+        "schema:contentSize": "3000000"\
       }'
 
 # Write as much metadata as you want into the pod or multiple pods
@@ -306,6 +371,128 @@ colony search sparql '\
   }}'
 ```
 
+### Internet Archive Downloader Usage
+
+The `ia_downloader` tool downloads content from the Internet Archive and prepares it for upload:
+
+```bash
+# Basic usage
+ia_downloader "genesis pod" "https://archive.org/details/george-orwell-1984_202309" "pdf,txt,epub"
+
+# With custom output directory
+ia_downloader "my-books" "https://archive.org/details/some-book" "pdf" --output-dir /path/to/downloads
+
+# Skip metadata enhancement
+ia_downloader "test-pod" "https://archive.org/details/item" "mp3" --no-enhance
+
+# Enable AI-powered metadata enhancement (need an API token from hugging face for this to work)
+ia_downloader "enhanced-pod" "https://archive.org/details/item" "pdf" --ai-enhance
+
+# Disable colors
+ia_downloader "pod" "https://archive.org/details/item" "txt" --no-color
+```
+
+**Arguments:**
+- `POD` - Pod name or address to record metadata in (must already exist)
+- `URL` - Internet Archive URL (e.g., https://archive.org/details/item-name)
+- `EXTENSIONS` - Comma-separated list of file extensions to download
+
+**Options:**
+- `--output-dir` - Output directory (default: `colony_uploader`)
+- `--no-enhance` - Skip metadata enhancement from external sources
+- `--ai-enhance` - Enable AI-powered metadata enhancement
+- `--no-color` - Disable colored output
+
+### Colony Uploader Usage
+
+The `colony_uploader` tool processes directories created by `ia_downloader` and uploads content to Autonomi:
+
+```bash
+# Basic usage (processes all directories in colony_uploader/)
+colony_uploader colony_uploader/
+
+# Custom server and port
+colony_uploader --server 192.168.1.100 --port 3004 /path/to/upload/dir
+
+# Multi-threaded processing
+colony_uploader --threads 5 colony_uploader/
+
+# Keep directories after processing
+colony_uploader --keep colony_uploader/
+```
+
+**Arguments:**
+- `DIRECTORY` - Directory containing subdirectories to upload
+
+**Options:**
+- `--server` - Colonyd server location (default: 127.0.0.1)
+- `--port` - Colonyd port (default: 3000)
+- `--threads` - Number of directories to process in parallel (default: 1)
+- `--keep` - Keep directories after processing (default: delete)
+
+**Workflow Example:**
+```bash
+# 1. Download content from Internet Archive
+ia_downloader "books" "https://archive.org/details/alice-in-wonderland" "pdf,epub,txt"
+
+# 2. Upload to Autonomi via colonyd
+colony_uploader colony_uploader/
+
+# 3. Search for uploaded content
+colony search text "alice wonderland" --limit 10
+```
+
+## 🚀 Bulk Upload Workflow
+
+The combination of `ia_downloader` and `colony_uploader` provides a powerful workflow for bulk uploading Internet Archive content to Autonomi:
+
+### Complete Workflow Example
+
+```bash
+# 1. Start colonyd daemon
+colonyd
+
+# 2. Create a pod for your content (using colony CLI)
+colony add pod "classic-literature"
+
+# 3. Download content from Internet Archive
+ia_downloader "classic-literature" "https://archive.org/details/aliceinwonderland" "pdf,epub,txt" --ai-enhance
+
+# 4. Download more content to the same collection
+ia_downloader "classic-literature" "https://archive.org/details/prideandprejudice" "pdf,epub" --ai-enhance
+ia_downloader "classic-literature" "https://archive.org/details/greatexpectations" "pdf,txt"
+
+# 5. Upload all downloaded content to Autonomi
+colony_uploader --threads 3
+
+# 6. Search for your uploaded content
+colony search text "alice wonderland" --limit 10
+colony search type "http://schema.org/Book" --limit 20
+```
+
+### Advanced Configuration
+
+**ia_downloader Configuration:**
+Create `~/.config/ia_downloader/config.json`:
+```json
+{
+  "huggingface_api_key": "your_hf_token_here",
+  "tmdb_api_key": "your_tmdb_key_here", // Not yet implemented
+  "ai_model_url": "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
+  "enable_ai_enhancement": true,
+  "default_output_dir": "colony_uploader",
+  "max_concurrent_downloads": 3
+}
+```
+
+**Benefits of the Workflow:**
+- 🎯 **Targeted Downloads**: Only download specific file types you need
+- 🔍 **Enhanced Metadata**: AI-powered metadata enhancement for better searchability
+- ⚡ **Parallel Processing**: Multi-threaded uploads for faster processing
+- 💰 **Cost Tracking**: Monitor ANT and ETH costs for uploads
+- 📊 **Progress Tracking**: Real-time progress indicators throughout the process
+- 🧹 **Automated Cleanup**: Optional cleanup of processed directories
+
 ## 🏗️ Architecture
 
 ### System Overview
@@ -319,22 +506,22 @@ colony search sparql '\
 │ • Colored Output│                 │ • Job Queue     │
 └─────────────────┘                 └─────────────────┘
                                              │
-                                             ▼
-                                    ┌─────────────────┐
-                                    │   colonylib     │
-                                    │                 │
-                                    │ • PodManager    │
-                                    │ • DataStore     │
-                                    │ • KeyStore      │
-                                    └─────────────────┘
-                                             │
-                                             ▼
-                                    ┌─────────────────┐
-                                    │ Autonomi Network│
-                                    │                 │
-                                    │ • Decentralized │
-                                    │ • Immutable     │
-                                    │ • Secure        │
+┌─────────────────┐                          ▼
+│ ia_downloader   │                 ┌─────────────────┐
+│                 │                 │   colonylib     │
+│ • IA Downloads  │                 │                 │
+│ • Metadata      │                 │ • PodManager    │
+│ • Enhancement   │                 │ • DataStore     │
+└─────────────────┘                 │ • KeyStore      │
+         │                          └─────────────────┘
+         ▼                                   │
+┌─────────────────┐                          ▼
+│colony_uploader  │                 ┌─────────────────┐
+│                 │ ──────────────► │ Autonomi Network│
+│ • Bulk Upload   │    Files        │                 │
+│ • Multi-thread  │                 │ • Decentralized │
+│ • Cost Tracking │                 │ • Immutable     │
+└─────────────────┘                 │ • Secure        │
                                     └─────────────────┘
 ```
 
@@ -343,29 +530,44 @@ colony search sparql '\
 The daemon exposes the following REST endpoints:
 
 **Authentication:**
-- `POST /auth/token` - Get JWT token (requires keystore password)
-- `GET /health` - Health check (public)
+- `POST /colony-auth/token` - Get JWT token (requires keystore password)
+- `GET /colony-health` - Health check (public)
 
 **Asynchronous Operations (Public - No Auth Required):**
-- `POST /api/v1/jobs/cache/refresh` - Start cache refresh
-- `POST /api/v1/jobs/cache/refresh/{depth}` - Refresh with depth
-- `POST /api/v1/jobs/search` - Start search job
-- `POST /api/v1/jobs/search/subject/{subject}` - Search by subject
-- `GET /api/v1/jobs/{job_id}` - Get job status
-- `GET /api/v1/jobs/{job_id}/result` - Get job result
+- `POST /colony-0/jobs/cache/refresh` - Start cache refresh
+- `POST /colony-0/jobs/cache/refresh/{depth}` - Refresh with depth
+- `POST /colony-0/jobs/search` - Start search job
+- `POST /colony-0/jobs/search/subject/{subject}` - Search by subject
+- `GET /colony-0/jobs/{job_id}` - Get job status
+- `GET /colony-0/jobs/{job_id}/result` - Get job result
 
 **Asynchronous Operations (Protected - Auth Required):**
-- `POST /api/v1/jobs/cache/upload` - Upload all pods 🔒
-- `POST /api/v1/jobs/cache/upload/{address}` - Upload specific pod 🔒
+- `POST /colony-0/jobs/cache/upload` - Upload all pods 🔒
+- `POST /colony-0/jobs/cache/upload/{address}` - Upload specific pod 🔒
+- `POST /colony-0/file/upload` - Upload file to Autonomi 🔒
+
+**File Operations (Public/Protected):**
+- `POST /colony-0/file/download` - Download file from Autonomi (public)
+- `POST /colony-0/file/upload` - Upload file to Autonomi 🔒
 
 **Synchronous Operations (Protected - Auth Required):**
-- `GET /api/v1/pods` - List pods 🔒
-- `POST /api/v1/pods` - Create pod 🔒
-- `DELETE /api/v1/pods/{pod}` - Remove pod 🔒
-- `POST /api/v1/pods/{pod}` - Rename pod 🔒
-- `PUT /api/v1/pods/{pod}/{subject}` - Store subject data 🔒
-- `POST /api/v1/pods/{pod}/pod_ref` - Add pod reference 🔒
-- `DELETE /api/v1/pods/{pod}/pod_ref` - Remove pod reference 🔒
+- `GET /colony-0/pods` - List pods 🔒
+- `POST /colony-0/pods` - Create pod 🔒
+- `DELETE /colony-0/pods/{pod}` - Remove pod 🔒
+- `POST /colony-0/pods/{pod}` - Rename pod 🔒
+- `PUT /colony-0/pods/{pod}/{subject}` - Store subject data 🔒
+- `POST /colony-0/pods/{pod}/pod_ref` - Add pod reference 🔒
+- `DELETE /colony-0/pods/{pod}/pod_ref` - Remove pod reference 🔒
+
+**Wallet Management (Protected - Auth Required):**
+- `GET /colony-0/wallet` - Get active wallet 🔒
+- `POST /colony-0/wallet` - Set active wallet 🔒
+- `GET /colony-0/wallet/balance` - Get active wallet balance 🔒
+- `GET /colony-0/wallets` - List all wallets 🔒
+- `POST /colony-0/wallets` - Add new wallet 🔒
+- `DELETE /colony-0/wallets/{wallet}` - Remove wallet 🔒
+- `POST /colony-0/wallets/{wallet}` - Rename wallet 🔒
+- `GET /colony-0/wallets/{wallet}` - Get wallet balance 🔒
 
 ### 🔐 Authentication & Security
 
@@ -375,18 +577,18 @@ The colony-daemon implements a JWT-based authentication system to protect sensit
 
 1. **Get JWT Token**: Send a POST request to `/auth/token` with your keystore password
 2. **Use Token**: Include the token in the `Authorization: Bearer <token>` header
-3. **Token Expiration**: Tokens expire after 10 minutes for security
+3. **Token Expiration**: Tokens expire after 1 year
 
 #### Example Authentication
 
 ```bash
 # Get a JWT token
-TOKEN=$(curl -s -X POST http://localhost:3000/auth/token \
+TOKEN=$(curl -s -X POST http://localhost:3000/colony-auth/token \
   -H "Content-Type: application/json" \
   -d '{"password": "your_keystore_password"}' | jq -r '.token')
 
 # Use the token for protected endpoints
-curl -X POST http://localhost:3000/api/v1/pods \
+curl -X POST http://localhost:3000/colony-0/pods \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-new-pod"}'
@@ -395,9 +597,9 @@ curl -X POST http://localhost:3000/api/v1/pods \
 #### Endpoint Security
 
 - **🔓 Public Endpoints**: No authentication required
-  - Health check, search operations, job status/results, cache refresh
+  - Health check, search operations, job status/results, cache refresh, file downloads
 - **🔒 Protected Endpoints**: Require valid JWT token with password verification
-  - Pod creation/management, data storage, upload operations, listing pods
+  - Pod creation/management, data storage, upload operations, listing pods, wallet management, file uploads
 
 
 
@@ -437,13 +639,16 @@ The script tests both public and protected endpoints, showing proper JWT authent
 colony-utils/
 ├── src/
 │   └── bin/
-│       ├── colonyd.rs      # REST API server binary
-│       └── colony.rs       # CLI binary
-├── scripts/                # Testing and example scripts
-├── Cargo.toml              # Single crate configuration
-├── ASYNC_JOBS.md           # Documentation for async job system
-├── AUTHENTICATION.md       # Authentication documentation
-└── README.md               # This file
+│       ├── colonyd.rs          # REST API server binary
+│       ├── colony.rs           # CLI binary
+│       ├── ia_downloader.rs    # Internet Archive downloader
+│       └── colony_uploader.rs  # Bulk uploader for Autonomi
+├── scripts/                    # Testing and example scripts
+├── Cargo.toml                  # Single crate configuration
+├── ASYNC_JOBS.md               # Documentation for async job system
+├── AUTHENTICATION.md           # Authentication documentation
+├── bulk_uploader.org           # Design documentation for bulk upload tools
+└── README.md                   # This file
 ```
 
 ## 🐛 Troubleshooting
@@ -462,17 +667,39 @@ netstat -tlnp | grep :3000
 **Authentication Errors:**
 ```bash
 # Verify daemon is accessible
-curl http://localhost:3000/health
+curl http://localhost:3000/colony-health
 
 # Test authentication with correct password
-curl -X POST http://localhost:3000/auth/token \
+curl -X POST http://localhost:3000/colony-auth/token \
   -H "Content-Type: application/json" \
   -d '{"password": "your_keystore_password"}'
 
 # Check if you're using the correct keystore password
 # The daemon will return 401 Unauthorized for incorrect passwords
+```
 
+**Internet Archive Download Issues:**
+```bash
+# Ensure the URL is valid and accessible
+ia_downloader "test-pod" "https://archive.org/details/valid-item" "pdf"
 
+# Check network connectivity to archive.org
+curl -I https://archive.org/
+
+# Verify pod exists in colonyd before downloading
+colony pods | grep "test-pod"
+```
+
+**Upload Issues:**
+```bash
+# Check colonyd is running and accessible
+curl http://localhost:3000/colony-health
+
+# Verify wallet has sufficient funds
+colony wallet balance
+
+# Check file permissions for upload directories
+ls -la colony_uploader/
 ```
 
 **Network Issues:**
