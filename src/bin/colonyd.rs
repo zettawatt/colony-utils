@@ -236,32 +236,61 @@ impl JobManager {
         }
     }
 
+    // Helper method to check if a job type can run concurrently
+    fn is_concurrent_job_type(job_type: &JobType) -> bool {
+        matches!(job_type, JobType::FileDownload | JobType::FileUpload)
+    }
+
     async fn create_job(&self, job_type: JobType) -> Result<String, String> {
-        let mut active = self.active_operation.lock().await;
-        if active.is_some() {
-            return Err("Another operation is already running".to_string());
+        // For concurrent job types (file operations), skip the blocking check
+        if !Self::is_concurrent_job_type(&job_type) {
+            let mut active = self.active_operation.lock().await;
+            if active.is_some() {
+                return Err("Another operation is already running".to_string());
+            }
+
+            let job_id = Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            let job = Job {
+                id: job_id.clone(),
+                job_type,
+                status: JobStatus::Pending,
+                progress: Some(0.0),
+                message: Some("Job created".to_string()),
+                result: None,
+                error: None,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+
+            let mut jobs = self.jobs.lock().await;
+            jobs.insert(job_id.clone(), job);
+            *active = Some(job_id.clone());
+
+            Ok(job_id)
+        } else {
+            // For concurrent jobs, just create the job without blocking
+            let job_id = Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+
+            let job = Job {
+                id: job_id.clone(),
+                job_type,
+                status: JobStatus::Pending,
+                progress: Some(0.0),
+                message: Some("Job created".to_string()),
+                result: None,
+                error: None,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+
+            let mut jobs = self.jobs.lock().await;
+            jobs.insert(job_id.clone(), job);
+
+            Ok(job_id)
         }
-
-        let job_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let job = Job {
-            id: job_id.clone(),
-            job_type,
-            status: JobStatus::Pending,
-            progress: Some(0.0),
-            message: Some("Job created".to_string()),
-            result: None,
-            error: None,
-            created_at: now.clone(),
-            updated_at: now,
-        };
-
-        let mut jobs = self.jobs.lock().await;
-        jobs.insert(job_id.clone(), job);
-        *active = Some(job_id.clone());
-
-        Ok(job_id)
     }
 
     async fn update_job_status(
@@ -285,23 +314,32 @@ impl JobManager {
     }
 
     async fn complete_job(&self, job_id: &str, result: Option<Value>, error: Option<String>) {
-        let mut jobs = self.jobs.lock().await;
-        if let Some(job) = jobs.get_mut(job_id) {
-            job.status = if error.is_some() {
-                JobStatus::Failed
+        let job_type = {
+            let mut jobs = self.jobs.lock().await;
+            if let Some(job) = jobs.get_mut(job_id) {
+                job.status = if error.is_some() {
+                    JobStatus::Failed
+                } else {
+                    JobStatus::Completed
+                };
+                job.result = result;
+                job.error = error;
+                job.progress = Some(1.0);
+                job.updated_at = chrono::Utc::now().to_rfc3339();
+                Some(job.job_type.clone())
             } else {
-                JobStatus::Completed
-            };
-            job.result = result;
-            job.error = error;
-            job.progress = Some(1.0);
-            job.updated_at = chrono::Utc::now().to_rfc3339();
-        }
+                None
+            }
+        };
 
-        // Clear active operation
-        let mut active = self.active_operation.lock().await;
-        if active.as_ref().map(|s| s.as_str()) == Some(job_id) {
-            *active = None;
+        // Only clear active operation for blocking job types
+        if let Some(job_type) = job_type {
+            if !Self::is_concurrent_job_type(&job_type) {
+                let mut active = self.active_operation.lock().await;
+                if active.as_ref().map(|s| s.as_str()) == Some(job_id) {
+                    *active = None;
+                }
+            }
         }
     }
 
