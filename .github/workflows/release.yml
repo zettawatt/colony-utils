@@ -98,21 +98,19 @@ jobs:
         if: matrix.use_cross
         run: cargo install cross --version 0.2.5
 
-
-
-
-
-
-
       # Build binaries
       - name: Build binaries
         run: |
           if [ "${{ matrix.use_cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} --bin colonyd
             cross build --release --target ${{ matrix.target }} --bin colony
+            cross build --release --target ${{ matrix.target }} --bin ia_downloader
+            cross build --release --target ${{ matrix.target }} --bin colony_uploader
           else
             cargo build --release --target ${{ matrix.target }} --bin colonyd
             cargo build --release --target ${{ matrix.target }} --bin colony
+            cargo build --release --target ${{ matrix.target }} --bin ia_downloader
+            cargo build --release --target ${{ matrix.target }} --bin colony_uploader
           fi
         shell: bash
         env:
@@ -129,6 +127,8 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/colonyd*
             target/${{ matrix.target }}/release/colony*
+            target/${{ matrix.target }}/release/ia_downloader*
+            target/${{ matrix.target }}/release/colony_uploader*
 
   artifacts-summary:
     name: Build Summary
@@ -147,6 +147,10 @@ jobs:
           echo "The following binaries were successfully built:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           find artifacts -type f -name "colony*" | while read file; do
+            size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo "unknown")
+            echo "- \`$(basename "$file")\` (${size} bytes)" >> $GITHUB_STEP_SUMMARY
+          done
+          find artifacts -type f -name "*_downloader" | while read file; do
             size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo "unknown")
             echo "- \`$(basename "$file")\` (${size} bytes)" >> $GITHUB_STEP_SUMMARY
           done
@@ -175,20 +179,26 @@ jobs:
           # Linux x86_64
           cp artifacts/binaries-x86_64-unknown-linux-musl/colonyd release-assets/colonyd-x86_64-unknown-linux-musl
           cp artifacts/binaries-x86_64-unknown-linux-musl/colony release-assets/colony-x86_64-unknown-linux-musl
-
-
+          cp artifacts/binaries-x86_64-unknown-linux-musl/ia_downloader release-assets/ia_downloader-x86_64-unknown-linux-musl
+          cp artifacts/binaries-x86_64-unknown-linux-musl/colony_uploader release-assets/colony_uploader-x86_64-unknown-linux-musl
 
           # macOS x86_64 (Intel)
           cp artifacts/binaries-x86_64-apple-darwin/colonyd release-assets/colonyd-x86_64-apple-darwin
           cp artifacts/binaries-x86_64-apple-darwin/colony release-assets/colony-x86_64-apple-darwin
+          cp artifacts/binaries-x86_64-apple-darwin/ia_downloader release-assets/ia_downloader-x86_64-apple-darwin
+          cp artifacts/binaries-x86_64-apple-darwin/colony_uploader release-assets/colony_uploader-x86_64-apple-darwin
 
           # macOS ARM64 (Apple Silicon)
           cp artifacts/binaries-aarch64-apple-darwin/colonyd release-assets/colonyd-aarch64-apple-darwin
           cp artifacts/binaries-aarch64-apple-darwin/colony release-assets/colony-aarch64-apple-darwin
+          cp artifacts/binaries-aarch64-apple-darwin/ia_downloader release-assets/ia_downloader-aarch64-apple-darwin
+          cp artifacts/binaries-aarch64-apple-darwin/colony_uploader release-assets/colony_uploader-aarch64-apple-darwin
 
           # Windows x86_64
           cp artifacts/binaries-x86_64-pc-windows-msvc/colonyd.exe release-assets/colonyd-x86_64-pc-windows-msvc.exe
           cp artifacts/binaries-x86_64-pc-windows-msvc/colony.exe release-assets/colony-x86_64-pc-windows-msvc.exe
+          cp artifacts/binaries-x86_64-pc-windows-msvc/ia_downloader.exe release-assets/ia_downloader-x86_64-pc-windows-msvc.exe
+          cp artifacts/binaries-x86_64-pc-windows-msvc/colony_uploader.exe release-assets/colony_uploader-x86_64-pc-windows-msvc.exe
 
       # Create release and upload assets
       - name: Create Release
