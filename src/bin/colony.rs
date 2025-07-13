@@ -2175,27 +2175,43 @@ async fn handle_wallet(config: &Config, matches: &ArgMatches) -> anyhow::Result<
                 let balance_data: serde_json::Value = response.json().await?;
 
                 // Extract values from the response
-                let name = balance_data.get("name")
+                let name = balance_data
+                    .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Unknown");
-                let address = balance_data.get("address")
+                let address = balance_data
+                    .get("address")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Unknown");
-                let token_balance = balance_data.get("token_balance")
+                let token_balance = balance_data
+                    .get("token_balance")
                     .and_then(|v| v.as_str())
                     .unwrap_or("0.000000");
-                let gas_balance = balance_data.get("gas_balance")
+                let gas_balance = balance_data
+                    .get("gas_balance")
                     .and_then(|v| v.as_str())
                     .unwrap_or("0.000000");
 
                 println!("\n{}", "✅ Active wallet balance:".green().bold());
                 println!("💳 {} {}", "Name:".blue(), name.yellow().bold());
                 println!("🏠 {} {}", "Address:".blue(), address.cyan());
-                println!("🪙 {} {} ANT", "ANT Balance:".blue(), token_balance.yellow().bold());
-                println!("⛽ {} {} ETH", "ETH Balance:".blue(), gas_balance.yellow().bold());
+                println!(
+                    "🪙 {} {} ANT",
+                    "ANT Balance:".blue(),
+                    token_balance.yellow().bold()
+                );
+                println!(
+                    "⛽ {} {} ETH",
+                    "ETH Balance:".blue(),
+                    gas_balance.yellow().bold()
+                );
             } else {
                 let error_text = response.text().await?;
-                println!("{} {}", "❌ Failed to get wallet balance:".red(), error_text);
+                println!(
+                    "{} {}",
+                    "❌ Failed to get wallet balance:".red(),
+                    error_text
+                );
                 std::process::exit(1);
             }
         }

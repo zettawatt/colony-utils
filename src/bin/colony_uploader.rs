@@ -302,7 +302,9 @@ impl DirectoryProcessor {
                     if let Some(result) = job_status.job.result {
                         if let Some(file_response) = result.as_object() {
                             // Extract cost information and update stats
-                            if let Some(ant_cost) = file_response.get("ant_cost").and_then(|v| v.as_f64()) {
+                            if let Some(ant_cost) =
+                                file_response.get("ant_cost").and_then(|v| v.as_f64())
+                            {
                                 let mut stats = self.stats.lock().await;
                                 // Only update ANT costs here, ETH costs are calculated globally
                                 stats.total_cost_ant += ant_cost;
@@ -568,7 +570,11 @@ async fn main() -> anyhow::Result<()> {
             Some(balance)
         }
         Err(e) => {
-            eprintln!("{} Warning: Could not get initial wallet balance: {}", "⚠️".yellow(), e);
+            eprintln!(
+                "{} Warning: Could not get initial wallet balance: {}",
+                "⚠️".yellow(),
+                e
+            );
             None
         }
     };
@@ -723,7 +729,11 @@ async fn main() -> anyhow::Result<()> {
             Some(balance)
         }
         Err(e) => {
-            eprintln!("{} Warning: Could not get final wallet balance: {}", "⚠️".yellow(), e);
+            eprintln!(
+                "{} Warning: Could not get final wallet balance: {}",
+                "⚠️".yellow(),
+                e
+            );
             None
         }
     };
@@ -946,17 +956,21 @@ fn display_final_stats(stats: &UploadStats) {
 
 async fn get_wallet_balance(client: &Client, config: &Config, token: &str) -> anyhow::Result<f64> {
     let response = client
-        .get(&format!("{}/colony-0/wallet/balance", config.base_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .get(format!("{}/colony-0/wallet/balance", config.base_url))
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await?;
 
     if !response.status().is_success() {
-        return Err(anyhow::anyhow!("Failed to get wallet balance: {}", response.status()));
+        return Err(anyhow::anyhow!(
+            "Failed to get wallet balance: {}",
+            response.status()
+        ));
     }
 
     let balance_response: serde_json::Value = response.json().await?;
-    let balance = balance_response.get("balance")
+    let balance = balance_response
+        .get("balance")
         .and_then(|v| v.as_f64())
         .ok_or_else(|| anyhow::anyhow!("No balance in response"))?;
 

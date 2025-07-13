@@ -1543,19 +1543,18 @@ impl PodService {
         info!("Getting wallet balance for: {}", wallet_name);
 
         // Extract components
-        let (client, wallet, data_store, keystore, graph) =
-            self.extract_components()?;
+        let (client, wallet, data_store, keystore, graph) = self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
             // Get the private key for the specified wallet
             let private_key = keystore
                 .get_wallet_key(wallet_name)
-                .map_err(|e| format!("Failed to get wallet key for {}: {e}", wallet_name))?;
+                .map_err(|e| format!("Failed to get wallet key for {wallet_name}: {e}"))?;
 
             let address = keystore
                 .get_wallet_address(wallet_name)
-                .map_err(|e| format!("Failed to get wallet address for {}: {e}", wallet_name))?;
+                .map_err(|e| format!("Failed to get wallet address for {wallet_name}: {e}"))?;
 
             // Create a wallet instance for this specific wallet
             let evm_network = client.evm_network().clone();
@@ -1583,8 +1582,8 @@ impl PodService {
             let wallet_balance_response = WalletBalanceResponse {
                 name: wallet_name.to_string(),
                 address,
-                balance: format!("{:.6}", balance), // Format to 6 decimal places
-                gas_balance: format!("{:.6}", gas_balance), // Format to 6 decimal places
+                balance: format!("{balance:.6}"), // Format to 6 decimal places
+                gas_balance: format!("{gas_balance:.6}"), // Format to 6 decimal places
                 timestamp: chrono::Utc::now().to_rfc3339(),
             };
 
@@ -1613,8 +1612,7 @@ impl PodService {
         info!("Getting active wallet balance");
 
         // Extract components
-        let (client, wallet, data_store, keystore, graph) =
-            self.extract_components()?;
+        let (client, wallet, data_store, keystore, graph) = self.extract_components()?;
 
         // Execute operation and capture result
         let result = async {
@@ -1658,8 +1656,8 @@ impl PodService {
             let wallet_balance_response = WalletBalanceResponse {
                 name,
                 address,
-                balance: format!("{:.6}", balance), // Format to 6 decimal places
-                gas_balance: format!("{:.6}", gas_balance), // Format to 6 decimal places
+                balance: format!("{balance:.6}"), // Format to 6 decimal places
+                gas_balance: format!("{gas_balance:.6}"), // Format to 6 decimal places
                 timestamp: chrono::Utc::now().to_rfc3339(),
             };
 
@@ -2215,7 +2213,9 @@ fn create_router(state: AppState) -> Router {
         .route("/colony-0/wallets", get(list_wallets).post(add_wallet))
         .route(
             "/colony-0/wallets/{wallet}",
-            delete(remove_wallet).post(rename_wallet).get(get_wallet_balance),
+            delete(remove_wallet)
+                .post(rename_wallet)
+                .get(get_wallet_balance),
         )
         .route(
             "/colony-0/pods/{pod}/pod_ref",
