@@ -1156,17 +1156,16 @@ async fn main() -> anyhow::Result<()> {
                     Command::new("download")
                         .about("Download a file from URL")
                         .arg(
-                            Arg::new("url")
-                                .value_name("URL")
-                                .help("URL to download from")
+                            Arg::new("address")
+                                .value_name("ADDRESS")
+                                .help("Address to download from")
                                 .required(true),
                         )
                         .arg(
                             Arg::new("destination")
-                                .short('d')
-                                .long("destination")
                                 .value_name("PATH")
-                                .help("Local destination path"),
+                                .help("File path to save to")
+                                .required(true),
                         ),
                 )
                 .subcommand(
@@ -2171,7 +2170,7 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
 
     match matches.subcommand() {
         Some(("download", sub_matches)) => {
-            let address = sub_matches.get_one::<String>("url").unwrap();
+            let address = sub_matches.get_one::<String>("address").unwrap();
             let destination = sub_matches.get_one::<String>("destination").cloned();
 
             println!(
