@@ -1496,10 +1496,17 @@ impl PodService {
     // Maps to PodManager::download_file()
     async fn download_file(&self, request: FileDownloadRequest) -> Result<FileResponse, String> {
         info!("Downloading file from: {}", request.address);
-
-        // Extract components
-        let (client, wallet, data_store, keystore, graph) = self.extract_components()?;
-
+        let client = {
+            let client = self
+                .client
+                .lock()
+                .unwrap()
+                .as_ref()
+                .ok_or("Client not initialized")?
+                .clone();
+            client
+        }; // All MutexGuards are dropped here
+    
         // Execute operation and capture result
         let result = async {
             // Data address of the file
@@ -1529,9 +1536,6 @@ impl PodService {
         }
         .await;
 
-        // Always restore components, regardless of success or failure
-        self.restore_components(client, wallet, data_store, keystore, graph);
-
         // Handle the result
         match result {
             Ok(file_response) => {
@@ -1549,8 +1553,23 @@ impl PodService {
     async fn upload_file(&self, request: FileUploadRequest) -> Result<FileResponse, String> {
         info!("Uploading file: {}", request.file_path);
 
-        // Extract components
-        let (client, wallet, data_store, keystore, graph) = self.extract_components()?;
+        let (client, wallet) = {
+            let client = self
+                .client
+                .lock()
+                .unwrap()
+                .as_ref()
+                .ok_or("Client not initialized")?
+                .clone();
+            let wallet = self
+                .wallet
+                .lock()
+                .unwrap()
+                .as_ref()
+                .ok_or("Wallet not initialized")?
+                .clone();
+            (client, wallet)
+        }; // All MutexGuards are dropped here
 
         // Execute operation and capture result
         let result = async {
@@ -1595,9 +1614,6 @@ impl PodService {
             Ok(file_response)
         }
         .await;
-
-        // Always restore components, regardless of success or failure
-        self.restore_components(client, wallet, data_store, keystore, graph);
 
         // Handle the result
         match result {
