@@ -71,6 +71,8 @@ struct UploadStats {
     successful_directories: u64,
     failed_directories: u64,
     total_time: std::time::Duration,
+    initial_eth_balance: Option<f64>,
+    final_eth_balance: Option<f64>,
 }
 
 impl Default for UploadStats {
@@ -83,6 +85,8 @@ impl Default for UploadStats {
             successful_directories: 0,
             failed_directories: 0,
             total_time: std::time::Duration::from_secs(0),
+            initial_eth_balance: None,
+            final_eth_balance: None,
         }
     }
 }
@@ -237,6 +241,7 @@ impl DirectoryProcessor {
     }
 
     async fn upload_file_to_autonomi(&self, file_path: &Path) -> Result<String, String> {
+        // Get fresh token for each request to avoid 401 errors
         let token = self.token.lock().await.clone();
 
         // Start upload job
@@ -297,16 +302,12 @@ impl DirectoryProcessor {
                     if let Some(result) = job_status.job.result {
                         if let Some(file_response) = result.as_object() {
                             // Extract cost information and update stats
-                            if let (Some(ant_cost), Some(gas_cost), Some(_size)) = (
-                                file_response.get("ant_cost").and_then(|v| v.as_f64()),
-                                file_response.get("gas_cost").and_then(|v| v.as_f64()),
-                                file_response.get("size").and_then(|v| v.as_u64()),
-                            ) {
+                            if let Some(ant_cost) = file_response.get("ant_cost").and_then(|v| v.as_f64()) {
                                 let mut stats = self.stats.lock().await;
-                                // Only update costs here, not file counts (those are updated elsewhere)
+                                // Only update ANT costs here, ETH costs are calculated globally
                                 stats.total_cost_ant += ant_cost;
-                                stats.total_cost_eth += gas_cost;
                                 // Don't update files_uploaded and total_size here to avoid double counting
+                                // Don't update ETH costs here - they're calculated from wallet balance difference
                             }
 
                             if let Some(address) =
@@ -517,6 +518,9 @@ async fn main() -> anyhow::Result<()> {
     println!("{} {}", "📁 Directory:".bold(), upload_dir.blue());
     println!();
 
+    // Start timing from the beginning of the actual work
+    let start_time = std::time::Instant::now();
+
     // Get password for colonyd
     let password = Password::new()
         .with_prompt("🔐 Enter colonyd password")
@@ -557,8 +561,17 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Start timing
-    let start_time = std::time::Instant::now();
+    // Get initial wallet balance for accurate cost calculation
+    let initial_balance = match get_wallet_balance(&client, &config, &token.lock().await).await {
+        Ok(balance) => {
+            println!("{} Initial wallet balance: {:.6} ETH", "💰".bold(), balance);
+            Some(balance)
+        }
+        Err(e) => {
+            eprintln!("{} Warning: Could not get initial wallet balance: {}", "⚠️".yellow(), e);
+            None
+        }
+    };
 
     // Scan for uploader directories
     println!(
@@ -703,9 +716,28 @@ async fn main() -> anyhow::Result<()> {
     let end_time = std::time::Instant::now();
     let total_time = end_time.duration_since(start_time);
 
-    // Get final stats and update with timing
+    // Get final wallet balance for accurate cost calculation
+    let final_balance = match get_wallet_balance(&client, &config, &token.lock().await).await {
+        Ok(balance) => {
+            println!("{} Final wallet balance: {:.6} ETH", "💰".bold(), balance);
+            Some(balance)
+        }
+        Err(e) => {
+            eprintln!("{} Warning: Could not get final wallet balance: {}", "⚠️".yellow(), e);
+            None
+        }
+    };
+
+    // Get final stats and update with timing and accurate costs
     let mut stats = processor.stats.lock().await.clone();
     stats.total_time = total_time;
+    stats.initial_eth_balance = initial_balance;
+    stats.final_eth_balance = final_balance;
+
+    // Calculate accurate ETH cost from balance difference
+    if let (Some(initial), Some(final_bal)) = (initial_balance, final_balance) {
+        stats.total_cost_eth = initial - final_bal;
+    }
 
     // Upload metadata to Autonomi if we had any successes
     if stats.successful_directories > 0 {
@@ -910,6 +942,25 @@ fn display_final_stats(stats: &UploadStats) {
             stats.failed_directories.to_string().red()
         );
     }
+}
+
+async fn get_wallet_balance(client: &Client, config: &Config, token: &str) -> anyhow::Result<f64> {
+    let response = client
+        .get(&format!("{}/colony-0/wallet/balance", config.base_url))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!("Failed to get wallet balance: {}", response.status()));
+    }
+
+    let balance_response: serde_json::Value = response.json().await?;
+    let balance = balance_response.get("balance")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| anyhow::anyhow!("No balance in response"))?;
+
+    Ok(balance)
 }
 
 async fn authenticate_with_colonyd(

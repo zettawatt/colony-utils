@@ -110,6 +110,15 @@ struct WalletResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct WalletBalanceResponse {
+    name: String,
+    address: String,
+    balance: String,
+    gas_balance: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct FileDownloadRequest {
     address: String,
     destination: String,
@@ -1529,6 +1538,151 @@ impl PodService {
         }
     }
 
+    // Maps to PodManager::get_wallet_balance()
+    async fn get_wallet_balance(&self, wallet_name: &str) -> Result<WalletBalanceResponse, String> {
+        info!("Getting wallet balance for: {}", wallet_name);
+
+        // Extract components
+        let (client, wallet, data_store, keystore, graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            // Get the private key for the specified wallet
+            let private_key = keystore
+                .get_wallet_key(wallet_name)
+                .map_err(|e| format!("Failed to get wallet key for {}: {e}", wallet_name))?;
+
+            let address = keystore
+                .get_wallet_address(wallet_name)
+                .map_err(|e| format!("Failed to get wallet address for {}: {e}", wallet_name))?;
+
+            // Create a wallet instance for this specific wallet
+            let evm_network = client.evm_network().clone();
+            let target_wallet = Wallet::new_from_private_key(evm_network, &private_key)
+                .map_err(|e| format!("Failed to create wallet: {e}"))?;
+
+            // Get the balance using the wallet's balance method
+            let balance_raw = target_wallet
+                .balance_of_tokens()
+                .await
+                .map_err(|e| format!("Failed to get wallet token balance: {e}"))?;
+
+            let gas_balance_raw = target_wallet
+                .balance_of_gas_tokens()
+                .await
+                .map_err(|e| format!("Failed to get wallet gas balance: {e}"))?;
+
+            // Convert balances to human-readable format (ETH)
+            let balance: f64 = balance_raw.into();
+            let balance = balance / 1_000_000_000_000_000_000.0f64; // Convert wei to ETH
+
+            let gas_balance: f64 = gas_balance_raw.into();
+            let gas_balance = gas_balance / 1_000_000_000_000_000_000.0f64; // Convert wei to ETH
+
+            let wallet_balance_response = WalletBalanceResponse {
+                name: wallet_name.to_string(),
+                address,
+                balance: format!("{:.6}", balance), // Format to 6 decimal places
+                gas_balance: format!("{:.6}", gas_balance), // Format to 6 decimal places
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(wallet_balance_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(wallet_balance_response) => {
+                info!("Wallet balance retrieved successfully for: {}", wallet_name);
+                Ok(wallet_balance_response)
+            }
+            Err(e) => {
+                warn!("Failed to get wallet balance for {}: {}", wallet_name, e);
+                Err(e)
+            }
+        }
+    }
+
+    // Maps to PodManager::get_active_wallet_balance()
+    async fn get_active_wallet_balance(&self) -> Result<WalletBalanceResponse, String> {
+        info!("Getting active wallet balance");
+
+        // Extract components
+        let (client, wallet, data_store, keystore, graph) =
+            self.extract_components()?;
+
+        // Execute operation and capture result
+        let result = async {
+            let mut data_store_clone = data_store.clone();
+            let mut keystore_clone = keystore.clone();
+            let mut graph_clone = graph.clone();
+
+            let podman = PodManager::new(
+                client.clone(),
+                &wallet,
+                &mut data_store_clone,
+                &mut keystore_clone,
+                &mut graph_clone,
+            )
+            .await
+            .map_err(|e| format!("Failed to create PodManager: {e}"))?;
+
+            // Get the active wallet name and address
+            let (name, address) = podman
+                .get_active_wallet()
+                .map_err(|e| format!("Failed to get active wallet: {e}"))?;
+
+            // Get the balance using the current wallet (which is the active wallet)
+            let balance_raw = wallet
+                .balance_of_tokens()
+                .await
+                .map_err(|e| format!("Failed to get wallet token balance: {e}"))?;
+
+            let gas_balance_raw = wallet
+                .balance_of_gas_tokens()
+                .await
+                .map_err(|e| format!("Failed to get wallet gas balance: {e}"))?;
+
+            // Convert balances to human-readable format (ETH)
+            let balance: f64 = balance_raw.into();
+            let balance = balance / 1_000_000_000_000_000_000.0f64; // Convert wei to ETH
+
+            let gas_balance: f64 = gas_balance_raw.into();
+            let gas_balance = gas_balance / 1_000_000_000_000_000_000.0f64; // Convert wei to ETH
+
+            let wallet_balance_response = WalletBalanceResponse {
+                name,
+                address,
+                balance: format!("{:.6}", balance), // Format to 6 decimal places
+                gas_balance: format!("{:.6}", gas_balance), // Format to 6 decimal places
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+
+            Ok(wallet_balance_response)
+        }
+        .await;
+
+        // Always restore components, regardless of success or failure
+        self.restore_components(client, wallet, data_store, keystore, graph);
+
+        // Handle the result
+        match result {
+            Ok(wallet_balance_response) => {
+                info!("Active wallet balance retrieved successfully");
+                Ok(wallet_balance_response)
+            }
+            Err(e) => {
+                warn!("Failed to get active wallet balance: {}", e);
+                Err(e)
+            }
+        }
+    }
+
     // File management methods
 
     // Maps to PodManager::download_file()
@@ -2057,10 +2211,11 @@ fn create_router(state: AppState) -> Router {
             "/colony-0/wallet",
             get(get_active_wallet).post(set_active_wallet),
         )
+        .route("/colony-0/wallet/balance", get(get_active_wallet_balance))
         .route("/colony-0/wallets", get(list_wallets).post(add_wallet))
         .route(
             "/colony-0/wallets/{wallet}",
-            delete(remove_wallet).post(rename_wallet),
+            delete(remove_wallet).post(rename_wallet).get(get_wallet_balance),
         )
         .route(
             "/colony-0/pods/{pod}/pod_ref",
@@ -2145,7 +2300,7 @@ async fn create_token(
 
     let claims = Claims {
         sub: "colonyd".to_string(),
-        exp: now + 600, // 10 minutes
+        exp: now + (365 * 24 * 60 * 60), // 1 year (no timeout for single client application)
         iat: now,
         password_verified: true, // Password has been verified
     };
@@ -2155,7 +2310,7 @@ async fn create_token(
             info!("JWT token created successfully with password verification");
             Ok(Json(serde_json::json!({
                 "token": token,
-                "expires_in": 600,
+                "expires_in": 365 * 24 * 60 * 60, // 1 year
                 "token_type": "Bearer"
             })))
         }
@@ -2626,6 +2781,65 @@ async fn rename_wallet(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "RENAME_WALLET_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_wallet_balance(
+    State(state): State<AppState>,
+    Path(wallet_name): Path<String>,
+) -> Result<Json<WalletBalanceResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting wallet balance for: {}", wallet_name);
+
+    match state.pod_service.get_wallet_balance(&wallet_name).await {
+        Ok(wallet_balance) => {
+            info!("Wallet balance retrieved successfully for: {}", wallet_name);
+            Ok(Json(wallet_balance))
+        }
+        Err(err) => {
+            error!("Failed to get wallet balance for {}: {}", wallet_name, err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_WALLET_BALANCE_FAILED".to_string(),
+                    message: err,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                }),
+            ))
+        }
+    }
+}
+
+#[instrument(skip(state))]
+async fn get_active_wallet_balance(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Getting active wallet balance");
+
+    match state.pod_service.get_active_wallet_balance().await {
+        Ok(wallet_balance) => {
+            info!("Active wallet balance retrieved successfully");
+            // Return in the format expected by colony_uploader
+            Ok(Json(serde_json::json!({
+                "balance": wallet_balance.gas_balance.parse::<f64>().unwrap_or(0.0),
+                "name": wallet_balance.name,
+                "address": wallet_balance.address,
+                "token_balance": wallet_balance.balance,
+                "gas_balance": wallet_balance.gas_balance,
+                "timestamp": wallet_balance.timestamp
+            })))
+        }
+        Err(err) => {
+            error!("Failed to get active wallet balance: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "GET_ACTIVE_WALLET_BALANCE_FAILED".to_string(),
                     message: err,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                 }),
