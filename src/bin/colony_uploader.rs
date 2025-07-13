@@ -546,11 +546,12 @@ impl DirectoryProcessor {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony_uploader")
-        .version("0.1.0")
+        .version("0.1.1")
         .author("Chuck McClish")
         .about("🏛️ Colony uploader for Autonomi network")
         .arg(
             Arg::new("server")
+                .short('s')
                 .long("server")
                 .value_name("SERVER")
                 .help("Colonyd server location")
@@ -558,6 +559,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .arg(
             Arg::new("port")
+                .short('p')
                 .long("port")
                 .value_name("PORT")
                 .help("Colonyd port")
@@ -565,6 +567,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .arg(
             Arg::new("threads")
+                .short('t')
                 .long("threads")
                 .value_name("THREADS")
                 .help("Number of uploader directories to process in parallel")
@@ -572,6 +575,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .arg(
             Arg::new("keep")
+                .short('k')
                 .long("keep")
                 .help("Keep the uploader directories after processing")
                 .action(clap::ArgAction::SetTrue),
