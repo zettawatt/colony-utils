@@ -1,6 +1,5 @@
 use anyhow::Result;
-use autonomi::{client::data::DataAddress, self_encryption::encrypt};
-use bytes::Bytes;
+
 use clap::{Arg, Command};
 use colored::*;
 use dialoguer::Password;
@@ -22,6 +21,47 @@ struct TokenResponse {
     token_type: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct FileUploadRequest {
+    file_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JobResponse {
+    job_id: String,
+    status: String,
+    message: String,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JobStatusResponse {
+    job: JobInfo,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JobInfo {
+    id: String,
+    job_type: String,
+    status: String,
+    progress: Option<f64>,
+    message: Option<String>,
+    result: Option<Value>,
+    error: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileResponse {
+    file_path: String,
+    address: String,
+    size: u64,
+    ant_cost: f64,
+    gas_cost: f64,
+    timestamp: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UploadStats {
     files_uploaded: u64,
@@ -30,6 +70,7 @@ struct UploadStats {
     total_cost_eth: f64,
     successful_directories: u64,
     failed_directories: u64,
+    total_time: std::time::Duration,
 }
 
 impl Default for UploadStats {
@@ -41,6 +82,7 @@ impl Default for UploadStats {
             total_cost_eth: 0.0,
             successful_directories: 0,
             failed_directories: 0,
+            total_time: std::time::Duration::from_secs(0),
         }
     }
 }
@@ -195,32 +237,104 @@ impl DirectoryProcessor {
     }
 
     async fn upload_file_to_autonomi(&self, file_path: &Path) -> Result<String, String> {
-        // Read file content
-        let file_content = fs::read(file_path).map_err(|e| format!("Failed to read file: {e}"))?;
+        let token = self.token.lock().await.clone();
 
-        // Calculate Autonomi address using the same method as ia_downloader
-        // This follows the same process as data_put_public: encrypt the data and get the data map chunk address
-        let bytes = Bytes::from(file_content.clone());
-        let file_size = file_content.len() as u64;
-        let (data_map_chunk, _chunks) =
-            encrypt(bytes).map_err(|e| format!("Failed to encrypt file: {e}"))?;
-        let map_xor_name = *data_map_chunk.address().xorname();
-        let data_address = DataAddress::new(map_xor_name);
-        let address = hex::encode(data_address.xorname().0);
+        // Start upload job
+        let upload_request = FileUploadRequest {
+            file_path: file_path.to_string_lossy().to_string(),
+        };
 
-        // For now, we simulate the upload and return the calculated address
-        // In a production environment, this would actually upload to Autonomi
-        // TODO: Implement actual Autonomi upload when network is properly configured
+        let response = self
+            .client
+            .post(format!("{}/colony-0/file/upload", self.config.base_url))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .json(&upload_request)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to start upload job: {e}"))?;
 
-        // Update stats
-        {
-            let mut stats = self.stats.lock().await;
-            stats.files_uploaded += 1;
-            stats.total_size += file_size;
-            // TODO: Add actual cost when uploading is implemented
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(format!("Upload job failed {status}: {error_text}"));
         }
 
-        Ok(format!("ant://{address}"))
+        let job_response: JobResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse job response: {e}"))?;
+
+        // Poll for job completion
+        self.wait_for_job_completion(&job_response.job_id).await
+    }
+
+    async fn wait_for_job_completion(&self, job_id: &str) -> Result<String, String> {
+        let token = self.token.lock().await.clone();
+        loop {
+            let response = self
+                .client
+                .get(format!("{}/colony-0/jobs/{}", self.config.base_url, job_id))
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to check job status: {e}"))?;
+
+            if !response.status().is_success() {
+                return Err(format!("Failed to get job status: {}", response.status()));
+            }
+
+            let job_status: JobStatusResponse = response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse job status: {e}"))?;
+
+            match job_status.job.status.as_str() {
+                "completed" => {
+                    if let Some(result) = job_status.job.result {
+                        if let Some(file_response) = result.as_object() {
+                            // Extract cost information and update stats
+                            if let (Some(ant_cost), Some(gas_cost), Some(_size)) = (
+                                file_response.get("ant_cost").and_then(|v| v.as_f64()),
+                                file_response.get("gas_cost").and_then(|v| v.as_f64()),
+                                file_response.get("size").and_then(|v| v.as_u64()),
+                            ) {
+                                let mut stats = self.stats.lock().await;
+                                // Only update costs here, not file counts (those are updated elsewhere)
+                                stats.total_cost_ant += ant_cost;
+                                stats.total_cost_eth += gas_cost;
+                                // Don't update files_uploaded and total_size here to avoid double counting
+                            }
+
+                            if let Some(address) =
+                                file_response.get("address").and_then(|v| v.as_str())
+                            {
+                                return Ok(address.to_string());
+                            }
+                        }
+                        return Err("Job completed but no address in result".to_string());
+                    }
+                    return Err("Job completed but no result".to_string());
+                }
+                "failed" => {
+                    let error_msg = job_status
+                        .job
+                        .error
+                        .unwrap_or_else(|| "Unknown error".to_string());
+                    return Err(format!("Upload job failed: {error_msg}"));
+                }
+                "running" | "pending" => {
+                    // Continue polling
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                }
+                _ => {
+                    return Err(format!("Unknown job status: {}", job_status.job.status));
+                }
+            }
+        }
     }
 
     async fn upload_metadata_to_colony(
@@ -443,6 +557,9 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Start timing
+    let start_time = std::time::Instant::now();
+
     // Scan for uploader directories
     println!(
         "{} {}",
@@ -582,8 +699,13 @@ async fn main() -> anyhow::Result<()> {
     main_pb.finish_with_message("All directories processed");
     println!();
 
-    // Get final stats
-    let stats = processor.stats.lock().await.clone();
+    // Calculate total time and update stats
+    let end_time = std::time::Instant::now();
+    let total_time = end_time.duration_since(start_time);
+
+    // Get final stats and update with timing
+    let mut stats = processor.stats.lock().await.clone();
+    stats.total_time = total_time;
 
     // Upload metadata to Autonomi if we had any successes
     if stats.successful_directories > 0 {
@@ -627,19 +749,100 @@ async fn upload_metadata_to_autonomi(
     token: &Arc<Mutex<String>>,
 ) -> anyhow::Result<()> {
     let token_guard = token.lock().await;
-    let upload_url = format!("{}/colony-0/upload", config.base_url);
+    let upload_url = format!("{}/colony-0/jobs/cache/upload", config.base_url);
 
+    // Start the upload job
     let response = client
         .post(&upload_url)
         .header("Authorization", format!("Bearer {}", *token_guard))
+        .header("Content-Type", "application/json")
         .send()
         .await?;
 
     if !response.status().is_success() {
-        return Err(anyhow::anyhow!("Upload failed: {}", response.status()));
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(anyhow::anyhow!(
+            "Upload job failed {}: {}",
+            status,
+            error_text
+        ));
     }
 
+    let job_response: JobResponse = response.json().await?;
+
+    // Wait for the job to complete
+    wait_for_upload_job_completion(client, config, &token_guard, &job_response.job_id).await?;
+
     Ok(())
+}
+
+async fn wait_for_upload_job_completion(
+    client: &Client,
+    config: &Config,
+    token: &str,
+    job_id: &str,
+) -> anyhow::Result<()> {
+    loop {
+        let response = client
+            .get(format!("{}/colony-0/jobs/{}", config.base_url, job_id))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "Failed to get job status: {}",
+                response.status()
+            ));
+        }
+
+        let job_status: JobStatusResponse = response.json().await?;
+
+        match job_status.job.status.as_str() {
+            "completed" => {
+                return Ok(());
+            }
+            "failed" => {
+                let error_msg = job_status
+                    .job
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string());
+                return Err(anyhow::anyhow!("Upload job failed: {}", error_msg));
+            }
+            "running" | "pending" => {
+                // Continue polling
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown job status: {}",
+                    job_status.job.status
+                ));
+            }
+        }
+    }
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    let millis = duration.subsec_millis();
+
+    if hours > 0 {
+        format!("{hours}h {minutes}m {seconds}s")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds}s")
+    } else if seconds > 0 {
+        format!("{seconds}.{millis:03}s")
+    } else {
+        format!("{millis}ms")
+    }
 }
 
 fn display_final_stats(stats: &UploadStats) {
@@ -685,6 +888,13 @@ fn display_final_stats(stats: &UploadStats) {
             stats.total_cost_eth.to_string().yellow()
         );
     }
+
+    // Display total time
+    println!(
+        "   {} Total time: {}",
+        "⏱️".bold(),
+        format_duration(stats.total_time).cyan()
+    );
 
     println!();
     if stats.failed_directories == 0 {
