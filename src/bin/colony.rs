@@ -1139,18 +1139,14 @@ async fn main() -> anyhow::Result<()> {
         .subcommand(
             Command::new("wallet")
                 .about("💳 Wallet operations")
+                .subcommand(Command::new("get").about("Get the active wallet"))
                 .subcommand(
-                    Command::new("get").about("Get the active wallet"),
-                )
-                .subcommand(
-                    Command::new("set")
-                        .about("Set the active wallet")
-                        .arg(
-                            Arg::new("name")
-                                .value_name("NAME")
-                                .help("Wallet name to set as active")
-                                .required(true),
-                        ),
+                    Command::new("set").about("Set the active wallet").arg(
+                        Arg::new("name")
+                            .value_name("NAME")
+                            .help("Wallet name to set as active")
+                            .required(true),
+                    ),
                 ),
         )
         .subcommand(
@@ -2133,11 +2129,13 @@ async fn handle_wallet(config: &Config, matches: &ArgMatches) -> anyhow::Result<
         }
         Some(("set", sub_matches)) => {
             let name = sub_matches.get_one::<String>("name").unwrap();
-            println!("{} {}", "💳 Setting active wallet to:".cyan(), name.yellow());
+            println!(
+                "{} {}",
+                "💳 Setting active wallet to:".cyan(),
+                name.yellow()
+            );
 
-            let request = SetActiveWalletRequest {
-                name: name.clone(),
-            };
+            let request = SetActiveWalletRequest { name: name.clone() };
 
             let response = client
                 .post(format!("{base_url}/colony-0/wallet"))
@@ -2176,7 +2174,11 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
             let address = sub_matches.get_one::<String>("url").unwrap();
             let destination = sub_matches.get_one::<String>("destination").cloned();
 
-            println!("{} {}", "📥 Starting file download from:".cyan(), address.yellow());
+            println!(
+                "{} {}",
+                "📥 Starting file download from:".cyan(),
+                address.yellow()
+            );
 
             let request = FileDownloadRequest {
                 address: address.clone(),
@@ -2195,7 +2197,9 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
                 println!("📋 Job ID: {}", job_response.job_id.cyan());
 
                 // Wait for job completion
-                let result = wait_for_job_completion_no_auth(config, &job_response.job_id, "File download").await?;
+                let result =
+                    wait_for_job_completion_no_auth(config, &job_response.job_id, "File download")
+                        .await?;
 
                 println!("\n{}", "✅ File download completed!".green().bold());
                 if let Some(file_info) = result.as_object() {
@@ -2205,7 +2209,11 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
                 }
             } else {
                 let error_text = response.text().await?;
-                println!("{} {}", "❌ Failed to start file download:".red(), error_text);
+                println!(
+                    "{} {}",
+                    "❌ Failed to start file download:".red(),
+                    error_text
+                );
                 std::process::exit(1);
             }
         }
@@ -2213,7 +2221,11 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
             let token = get_jwt_token(config).await?;
             let file_path = sub_matches.get_one::<String>("file").unwrap();
 
-            println!("{} {}", "📤 Starting file upload:".cyan(), file_path.yellow());
+            println!(
+                "{} {}",
+                "📤 Starting file upload:".cyan(),
+                file_path.yellow()
+            );
 
             let request = FileUploadRequest {
                 file_path: file_path.clone(),
@@ -2234,7 +2246,9 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
 
                 // Wait for job completion and display cost information
                 let token = get_jwt_token(config).await?;
-                let result = wait_for_job_completion(config, &token, &job_response.job_id, "File upload").await?;
+                let result =
+                    wait_for_job_completion(config, &token, &job_response.job_id, "File upload")
+                        .await?;
 
                 println!("\n{}", "✅ File upload completed!".green().bold());
                 if let Some(file_info) = result.as_object() {
@@ -2242,15 +2256,27 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
                         println!("🌐 {} {}", "Autonomi Address:".blue(), address.cyan());
                     }
                     if let Some(size) = file_info.get("size").and_then(|v| v.as_u64()) {
-                        println!("📏 {} {} bytes", "File Size:".blue(), size.to_string().yellow());
+                        println!(
+                            "📏 {} {} bytes",
+                            "File Size:".blue(),
+                            size.to_string().yellow()
+                        );
                     }
 
                     // Display actual cost information from the API
                     if let Some(ant_cost) = file_info.get("ant_cost") {
-                        println!("🪙 {} {} ANT", "ANT Tokens Used:".blue(), ant_cost.to_string().yellow());
+                        println!(
+                            "🪙 {} {} ANT",
+                            "ANT Tokens Used:".blue(),
+                            ant_cost.to_string().yellow()
+                        );
                     }
                     if let Some(gas_cost) = file_info.get("gas_cost") {
-                        println!("⛽ {} {} ETH", "ETH Gas Paid:".blue(), gas_cost.to_string().yellow());
+                        println!(
+                            "⛽ {} {} ETH",
+                            "ETH Gas Paid:".blue(),
+                            gas_cost.to_string().yellow()
+                        );
                     }
                 }
             } else {
@@ -2293,8 +2319,16 @@ fn display_wallets_table(wallets: &Value) {
                 wallet.get("address").and_then(|v| v.as_str()),
                 wallet.get("is_active").and_then(|v| v.as_bool()),
             ) {
-                let active_indicator = if is_active { "✅ Yes".green() } else { "❌ No".red() };
-                let name_display = if is_active { name.yellow().bold() } else { name.white() };
+                let active_indicator = if is_active {
+                    "✅ Yes".green()
+                } else {
+                    "❌ No".red()
+                };
+                let name_display = if is_active {
+                    name.yellow().bold()
+                } else {
+                    name.white()
+                };
 
                 println!(
                     "{:<20} {:<45} {}",

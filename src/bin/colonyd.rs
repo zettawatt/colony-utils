@@ -1535,16 +1535,14 @@ impl PodService {
     async fn download_file(&self, request: FileDownloadRequest) -> Result<FileResponse, String> {
         info!("Downloading file from: {}", request.address);
         let client = {
-            let client = self
-                .client
+            self.client
                 .lock()
                 .unwrap()
                 .as_ref()
                 .ok_or("Client not initialized")?
-                .clone();
-            client
+                .clone()
         }; // All MutexGuards are dropped here
-    
+
         // Execute operation and capture result
         let result = async {
             // Data address of the file
