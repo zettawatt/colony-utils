@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,7 +185,7 @@ impl DirectoryProcessor {
                         pb.set_message(format!("📤 Uploading {filename}..."));
 
                         // Upload to Autonomi using public file upload
-                        match self.upload_file_to_autonomi(&file_path).await {
+                        match self.upload_file_to_autonomi(&file_path, Some(&pb)).await {
                             Ok(address) => {
                                 pb.set_message(format!("✅ Uploaded {filename} -> {address}"));
                                 uploaded_files.push(file_path.clone());
@@ -210,7 +211,10 @@ impl DirectoryProcessor {
 
             pb.set_message("🖼️ Uploading thumbnail...");
 
-            match self.upload_file_to_autonomi(&thumbnail_path).await {
+            match self
+                .upload_file_to_autonomi(&thumbnail_path, Some(&pb))
+                .await
+            {
                 Ok(address) => {
                     pb.set_message(format!("✅ Uploaded thumbnail -> {address}"));
                     uploaded_files.push(thumbnail_path);
@@ -240,13 +244,46 @@ impl DirectoryProcessor {
         Ok(())
     }
 
-    async fn upload_file_to_autonomi(&self, file_path: &Path) -> Result<String, String> {
+    async fn upload_file_to_autonomi(
+        &self,
+        file_path: &Path,
+        upload_pb: Option<&ProgressBar>,
+    ) -> Result<String, String> {
         // Get fresh token for each request to avoid 401 errors
         let token = self.token.lock().await.clone();
 
-        // Start upload job
+        // Get file size for progress tracking
+        let file_size = fs::metadata(file_path)
+            .map_err(|e| format!("Failed to get file metadata: {e}"))?
+            .len();
+
+        let filename = file_path.file_name().unwrap().to_str().unwrap();
+
+        // Create progress bar for this upload if one wasn't provided
+        let pb = if let Some(existing_pb) = upload_pb {
+            existing_pb.clone()
+        } else {
+            let pb = ProgressBar::new(100); // Use percentage for job progress
+            pb.set_style(ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% {msg}")
+                .unwrap()
+                .progress_chars("#>-"));
+            pb.set_message(format!("📤 {filename}"));
+            pb
+        };
+
+        pb.set_message(format!(
+            "📤 Starting upload of {filename} ({file_size} bytes)..."
+        ));
+
+        // Start upload job - use absolute path to ensure colonyd can find the file
+        let absolute_path = file_path
+            .canonicalize()
+            .map_err(|e| format!("Failed to get absolute path: {e}"))?;
+        let full_path = absolute_path.to_string_lossy().to_string();
+
         let upload_request = FileUploadRequest {
-            file_path: file_path.to_string_lossy().to_string(),
+            file_path: full_path,
         };
 
         let response = self
@@ -265,6 +302,7 @@ impl DirectoryProcessor {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
+            pb.set_message(format!("❌ Upload failed: {error_text}"));
             return Err(format!("Upload job failed {status}: {error_text}"));
         }
 
@@ -273,12 +311,23 @@ impl DirectoryProcessor {
             .await
             .map_err(|e| format!("Failed to parse job response: {e}"))?;
 
-        // Poll for job completion
-        self.wait_for_job_completion(&job_response.job_id).await
+        pb.set_message(format!("📤 Upload job started for {filename}..."));
+
+        // Poll for job completion with progress updates
+        self.wait_for_job_completion_with_progress(&job_response.job_id, &pb, filename)
+            .await
     }
 
-    async fn wait_for_job_completion(&self, job_id: &str) -> Result<String, String> {
+    async fn wait_for_job_completion_with_progress(
+        &self,
+        job_id: &str,
+        pb: &ProgressBar,
+        filename: &str,
+    ) -> Result<String, String> {
         let token = self.token.lock().await.clone();
+        let start_time = Instant::now();
+        let mut last_progress = 0.0;
+
         loop {
             let response = self
                 .client
@@ -289,6 +338,7 @@ impl DirectoryProcessor {
                 .map_err(|e| format!("Failed to check job status: {e}"))?;
 
             if !response.status().is_success() {
+                pb.set_message(format!("❌ Failed to get job status for {filename}"));
                 return Err(format!("Failed to get job status: {}", response.status()));
             }
 
@@ -297,8 +347,44 @@ impl DirectoryProcessor {
                 .await
                 .map_err(|e| format!("Failed to parse job status: {e}"))?;
 
+            // Update progress if available
+            if let Some(progress) = job_status.job.progress {
+                let progress_percent = (progress * 100.0) as u64;
+                pb.set_position(progress_percent);
+
+                // Calculate estimated time remaining
+                let elapsed = start_time.elapsed();
+                if progress > 0.0 && progress > last_progress {
+                    let estimated_total = elapsed.as_secs_f64() / progress;
+                    let remaining = estimated_total - elapsed.as_secs_f64();
+
+                    if remaining > 0.0 {
+                        let remaining_str = if remaining > 60.0 {
+                            format!("{:.1}m", remaining / 60.0)
+                        } else {
+                            format!("{remaining:.0}s")
+                        };
+                        pb.set_message(format!(
+                            "📤 {} ({:.1}% - ETA: {})",
+                            filename,
+                            progress * 100.0,
+                            remaining_str
+                        ));
+                    } else {
+                        pb.set_message(format!("📤 {} ({:.1}%)", filename, progress * 100.0));
+                    }
+                } else {
+                    pb.set_message(format!("📤 {} ({:.1}%)", filename, progress * 100.0));
+                }
+                last_progress = progress;
+            } else {
+                // No progress info, just show status
+                pb.set_message(format!("📤 {} ({})", filename, job_status.job.status));
+            }
+
             match job_status.job.status.as_str() {
                 "completed" => {
+                    pb.set_position(100);
                     if let Some(result) = job_status.job.result {
                         if let Some(file_response) = result.as_object() {
                             // Extract cost information and update stats
@@ -306,20 +392,26 @@ impl DirectoryProcessor {
                                 file_response.get("ant_cost").and_then(|v| v.as_f64())
                             {
                                 let mut stats = self.stats.lock().await;
-                                // Only update ANT costs here, ETH costs are calculated globally
                                 stats.total_cost_ant += ant_cost;
-                                // Don't update files_uploaded and total_size here to avoid double counting
-                                // Don't update ETH costs here - they're calculated from wallet balance difference
                             }
 
                             if let Some(address) =
                                 file_response.get("address").and_then(|v| v.as_str())
                             {
+                                let elapsed = start_time.elapsed();
+                                pb.set_message(format!(
+                                    "✅ {} -> {} ({}s)",
+                                    filename,
+                                    address,
+                                    elapsed.as_secs()
+                                ));
                                 return Ok(address.to_string());
                             }
                         }
+                        pb.set_message(format!("❌ {filename} - No address in result"));
                         return Err("Job completed but no address in result".to_string());
                     }
+                    pb.set_message(format!("❌ {filename} - No result"));
                     return Err("Job completed but no result".to_string());
                 }
                 "failed" => {
@@ -327,13 +419,18 @@ impl DirectoryProcessor {
                         .job
                         .error
                         .unwrap_or_else(|| "Unknown error".to_string());
+                    pb.set_message(format!("❌ {filename} - {error_msg}"));
                     return Err(format!("Upload job failed: {error_msg}"));
                 }
                 "running" | "pending" => {
-                    // Continue polling
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    // Poll more frequently for better responsiveness
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 }
                 _ => {
+                    pb.set_message(format!(
+                        "❌ {} - Unknown status: {}",
+                        filename, job_status.job.status
+                    ));
                     return Err(format!("Unknown job status: {}", job_status.job.status));
                 }
             }

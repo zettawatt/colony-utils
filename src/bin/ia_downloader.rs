@@ -2,10 +2,16 @@ use autonomi::{client::data::DataAddress, self_encryption::encrypt};
 use bytes::Bytes;
 use clap::{Arg, Command};
 use colored::*;
+use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio::time::{Duration, Instant};
 
 use std::collections::HashMap;
 use std::fs;
@@ -577,20 +583,34 @@ fn parse_files_list(xml_content: &str) -> anyhow::Result<Vec<FileInfo>> {
                 let mut name = String::new();
                 let mut size = 0u64;
 
-                // Parse attributes
+                // Parse attributes (name is an attribute)
                 for attr in e.attributes() {
                     let attr = attr?;
-                    match attr.key.as_ref() {
-                        b"name" => {
-                            name = String::from_utf8_lossy(&attr.value).to_string();
+                    if attr.key.as_ref() == b"name" {
+                        name = String::from_utf8_lossy(&attr.value).to_string();
+                    }
+                }
+
+                // Parse child elements (size is a child element)
+                let mut current_tag = String::new();
+                loop {
+                    match reader.read_event() {
+                        Ok(Event::Start(ref e)) => {
+                            current_tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                         }
-                        b"size" => {
-                            if let Ok(size_str) =
-                                String::from_utf8_lossy(&attr.value).parse::<u64>()
-                            {
-                                size = size_str;
+                        Ok(Event::Text(e)) => {
+                            let text = e.unescape()?.to_string();
+                            if current_tag == "size" {
+                                if let Ok(size_val) = text.parse::<u64>() {
+                                    size = size_val;
+                                }
                             }
                         }
+                        Ok(Event::End(ref e)) if e.name().as_ref() == b"file" => {
+                            break; // End of this file element
+                        }
+                        Ok(Event::Eof) => break,
+                        Err(e) => anyhow::bail!("Error parsing files XML: {}", e),
                         _ => {}
                     }
                 }
@@ -1005,16 +1025,23 @@ async fn download_file(
 
     // Use actual file size if available, otherwise show indeterminate progress
     let pb = if file.size > 0 {
-        ProgressBar::new(file.size)
+        let pb = ProgressBar::new(file.size);
+        pb.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
+            .unwrap()
+            .progress_chars("#>-"));
+        pb.set_message(format!("📥 {}", file.name));
+        pb
     } else {
-        ProgressBar::new_spinner()
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} {msg}")
+                .unwrap(),
+        );
+        pb.set_message(format!("📥 {}", file.name));
+        pb
     };
-
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
-        .unwrap()
-        .progress_chars("#>-"));
-    pb.set_message(format!("📥 {}", file.name));
 
     let response = client.get(&file_url).send().await?;
 
@@ -1029,12 +1056,85 @@ async fn download_file(
 
     let file_path = output_dir.join(&file.name);
 
-    // Download the entire file at once for simplicity
-    let bytes = response.bytes().await?;
-    fs::write(&file_path, &bytes)?;
+    // Create the file for writing
+    let mut output_file = File::create(&file_path).await?;
 
-    pb.set_position(bytes.len() as u64);
+    // Shared progress tracking
+    let downloaded_bytes = Arc::new(AtomicU64::new(0));
+    let file_size = file.size;
+    let file_name = file.name.clone();
+
+    // Clone for the progress thread
+    let pb_clone = pb.clone();
+    let downloaded_clone = downloaded_bytes.clone();
+
+    // Spawn progress update thread that runs every second
+    let progress_handle = tokio::spawn(async move {
+        let mut last_bytes = 0u64;
+        let mut last_time = Instant::now();
+
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            let current_bytes = downloaded_clone.load(Ordering::Relaxed);
+            let current_time = Instant::now();
+
+            // Calculate speed
+            let bytes_diff = current_bytes.saturating_sub(last_bytes);
+            let time_diff = current_time.duration_since(last_time).as_secs_f64();
+            let speed = if time_diff > 0.0 {
+                bytes_diff as f64 / time_diff
+            } else {
+                0.0
+            };
+
+            // Update message with speed info
+            let speed_str = if speed > 1_048_576.0 {
+                format!("{:.1} MB/s", speed / 1_048_576.0)
+            } else if speed > 1024.0 {
+                format!("{:.1} KB/s", speed / 1024.0)
+            } else {
+                format!("{speed:.0} B/s")
+            };
+
+            pb_clone.set_message(format!("📥 {file_name} ({speed_str})"));
+
+            last_bytes = current_bytes;
+            last_time = current_time;
+
+            // Exit if download is complete
+            if file_size > 0 && current_bytes >= file_size {
+                break;
+            }
+        }
+    });
+
+    // Stream the response body and write chunks directly to disk
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result?;
+
+        // Write chunk to disk immediately
+        output_file.write_all(&chunk).await?;
+
+        // Update shared progress counter and progress bar
+        let new_total =
+            downloaded_bytes.fetch_add(chunk.len() as u64, Ordering::Relaxed) + chunk.len() as u64;
+        pb.set_position(new_total);
+    }
+
+    // Ensure all data is written to disk
+    output_file.flush().await?;
+
+    // Stop the progress thread
+    progress_handle.abort();
+
+    // Final progress update
+    let final_downloaded = downloaded_bytes.load(Ordering::Relaxed);
+    pb.set_position(final_downloaded);
     pb.finish_and_clear();
+
     Ok(())
 }
 
