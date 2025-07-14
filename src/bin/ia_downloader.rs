@@ -1183,12 +1183,8 @@ async fn create_jsonld_metadata(
     let schema_type = get_schema_type(&metadata.mediatype);
     let author = get_best_author_enhanced(metadata);
 
-    // Use title from metadata as schema:name, fallback to filename if title is empty
-    let schema_name = if !metadata.title.is_empty() {
-        metadata.title.clone()
-    } else {
-        file.name.clone()
-    };
+    // Always use filename as schema:name
+    let schema_name = file.name.clone();
 
     // Use enhanced description if available, otherwise fall back to original
     let description = metadata
@@ -1208,6 +1204,11 @@ async fn create_jsonld_metadata(
         "schema:contentSize": actual_file_size.to_string(),
         "schema:encodingFormat": encoding_format
     });
+
+    // Add title as alternateName if available and not empty
+    if !metadata.title.is_empty() {
+        jsonld_obj["schema:alternateName"] = json!(metadata.title);
+    }
 
     // Add enhanced fields if available
     if let Some(ref isbn) = metadata.isbn {
