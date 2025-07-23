@@ -514,7 +514,7 @@ impl DirectoryProcessor {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let app = Command::new("colony_uploader")
-        .version("0.1.1")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Chuck McClish")
         .about("🏛️ Colony uploader for Autonomi network")
         .arg(

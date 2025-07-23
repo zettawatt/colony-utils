@@ -110,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
     let _config = load_config();
 
     let app = Command::new("ia_downloader")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Chuck McClish")
         .about("🏛️ Internet Archive downloader for colony metadata framework")
         .arg(
