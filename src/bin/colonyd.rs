@@ -342,12 +342,12 @@ impl JobManager {
         };
 
         // Only clear active operation for blocking job types
-        if let Some(job_type) = job_type {
-            if !Self::is_concurrent_job_type(&job_type) {
-                let mut active = self.active_operation.lock().await;
-                if active.as_ref().map(|s| s.as_str()) == Some(job_id) {
-                    *active = None;
-                }
+        if let Some(job_type) = job_type
+            && !Self::is_concurrent_job_type(&job_type)
+        {
+            let mut active = self.active_operation.lock().await;
+            if active.as_ref().map(|s| s.as_str()) == Some(job_id) {
+                *active = None;
             }
         }
     }

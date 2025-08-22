@@ -501,24 +501,22 @@ fn print_subject_details(value: &Value, bindings_array: &[Value]) {
 
     for binding in bindings_array {
         // Extract pod address from 'graph' field
-        if let Some(graph_obj) = binding.get("graph") {
-            if let Some(graph_value) = graph_obj.get("value") {
-                if let Some(graph_str) = graph_value.as_str() {
-                    unique_pods.insert(graph_str.to_string());
-                }
-            }
+        if let Some(graph_obj) = binding.get("graph")
+            && let Some(graph_value) = graph_obj.get("value")
+            && let Some(graph_str) = graph_value.as_str()
+        {
+            unique_pods.insert(graph_str.to_string());
         }
 
         // Extract predicate-object pairs from 'predicate' and 'object' fields
         if let (Some(predicate_obj), Some(object_obj)) =
             (binding.get("predicate"), binding.get("object"))
-        {
-            if let (Some(predicate_str), Some(object_str)) = (
+            && let (Some(predicate_str), Some(object_str)) = (
                 predicate_obj.get("value").and_then(|v| v.as_str()),
                 object_obj.get("value").and_then(|v| v.as_str()),
-            ) {
-                predicate_objects.push((predicate_str.to_string(), object_str.to_string()));
-            }
+            )
+        {
+            predicate_objects.push((predicate_str.to_string(), object_str.to_string()));
         }
     }
 
@@ -537,23 +535,23 @@ fn print_subject_details(value: &Value, bindings_array: &[Value]) {
     }
 
     // Also check for pods_found in the response (fallback)
-    if let Some(pods_found) = value.get("pods_found") {
-        if let Some(pods_array) = pods_found.as_array() {
-            if !pods_array.is_empty() && unique_pods.is_empty() {
-                println!("{}", "📦 Found in pods:".cyan().bold());
-                for pod in pods_array {
-                    if let Some(pod_str) = pod.as_str() {
-                        let pod_display = if pod_str.starts_with("ant://") {
-                            pod_str.strip_prefix("ant://").unwrap_or(pod_str)
-                        } else {
-                            pod_str
-                        };
-                        println!("  {}", pod_display.blue());
-                    }
-                }
-                println!();
+    if let Some(pods_found) = value.get("pods_found")
+        && let Some(pods_array) = pods_found.as_array()
+        && !pods_array.is_empty()
+        && unique_pods.is_empty()
+    {
+        println!("{}", "📦 Found in pods:".cyan().bold());
+        for pod in pods_array {
+            if let Some(pod_str) = pod.as_str() {
+                let pod_display = if pod_str.starts_with("ant://") {
+                    pod_str.strip_prefix("ant://").unwrap_or(pod_str)
+                } else {
+                    pod_str
+                };
+                println!("  {}", pod_display.blue());
             }
         }
+        println!();
     }
 
     if !predicate_objects.is_empty() {
@@ -631,39 +629,33 @@ fn print_subjects_table(bindings_array: &[Value]) {
             .or_insert_with(|| (String::new(), String::new(), subject_address));
 
         // Extract predicate and object
-        if let Some(predicate_obj) = binding.get("predicate") {
-            if let Some(predicate_value) = predicate_obj.get("value") {
-                if let Some(predicate_str) = predicate_value.as_str() {
-                    if let Some(object_obj) = binding.get("object") {
-                        if let Some(object_value) = object_obj.get("value") {
-                            if let Some(object_str) = object_value.as_str() {
-                                match predicate_str {
-                                    "http://schema.org/name" => {
-                                        subject_entry.0 = object_str.to_string();
-                                    }
-                                    "ant://colonylib/vocabulary/0.1/predicate#name" => {
-                                        subject_entry.0 = object_str.to_string();
-                                    }
-                                    "http://schema.org/description" => {
-                                        subject_entry.1 = object_str.to_string();
-                                    }
-                                    "ant://colonylib/vocabulary/0.1/predicate#addr_type" => {
-                                        match object_str {
-                                            "ant://colonylib/vocabulary/0.1/object#pod" => {
-                                                subject_entry.1 = "Pod".to_string();
-                                            }
-                                            "ant://colonylib/vocabulary/0.1/object#pod_ref" => {
-                                                subject_entry.1 = "Pod Reference".to_string();
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
+        if let Some(predicate_obj) = binding.get("predicate")
+            && let Some(predicate_value) = predicate_obj.get("value")
+            && let Some(predicate_str) = predicate_value.as_str()
+            && let Some(object_obj) = binding.get("object")
+            && let Some(object_value) = object_obj.get("value")
+            && let Some(object_str) = object_value.as_str()
+        {
+            match predicate_str {
+                "http://schema.org/name" => {
+                    subject_entry.0 = object_str.to_string();
                 }
+                "ant://colonylib/vocabulary/0.1/predicate#name" => {
+                    subject_entry.0 = object_str.to_string();
+                }
+                "http://schema.org/description" => {
+                    subject_entry.1 = object_str.to_string();
+                }
+                "ant://colonylib/vocabulary/0.1/predicate#addr_type" => match object_str {
+                    "ant://colonylib/vocabulary/0.1/object#pod" => {
+                        subject_entry.1 = "Pod".to_string();
+                    }
+                    "ant://colonylib/vocabulary/0.1/object#pod_ref" => {
+                        subject_entry.1 = "Pod Reference".to_string();
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
         }
     }
@@ -2264,10 +2256,10 @@ async fn handle_file(config: &Config, matches: &ArgMatches) -> anyhow::Result<()
                         .await?;
 
                 println!("\n{}", "✅ File download completed!".green().bold());
-                if let Some(file_info) = result.as_object() {
-                    if let Some(file_path) = file_info.get("file_path").and_then(|v| v.as_str()) {
-                        println!("📁 {} {}", "Downloaded to:".blue(), file_path.yellow());
-                    }
+                if let Some(file_info) = result.as_object()
+                    && let Some(file_path) = file_info.get("file_path").and_then(|v| v.as_str())
+                {
+                    println!("📁 {} {}", "Downloaded to:".blue(), file_path.yellow());
                 }
             } else {
                 let error_text = response.text().await?;

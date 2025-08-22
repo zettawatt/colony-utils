@@ -92,12 +92,11 @@ fn load_config() -> Config {
         .join("ia_downloader")
         .join("config.json");
 
-    if config_path.exists() {
-        if let Ok(content) = fs::read_to_string(&config_path) {
-            if let Ok(config) = serde_json::from_str::<Config>(&content) {
-                return config;
-            }
-        }
+    if config_path.exists()
+        && let Ok(content) = fs::read_to_string(&config_path)
+        && let Ok(config) = serde_json::from_str::<Config>(&content)
+    {
+        return config;
     }
 
     // Return default config if file doesn't exist or can't be parsed
@@ -600,10 +599,10 @@ fn parse_files_list(xml_content: &str) -> anyhow::Result<Vec<FileInfo>> {
                         }
                         Ok(Event::Text(e)) => {
                             let text = e.unescape()?.to_string();
-                            if current_tag == "size" {
-                                if let Ok(size_val) = text.parse::<u64>() {
-                                    size = size_val;
-                                }
+                            if current_tag == "size"
+                                && let Ok(size_val) = text.parse::<u64>()
+                            {
+                                size = size_val;
                             }
                         }
                         Ok(Event::End(ref e)) if e.name().as_ref() == b"file" => {
@@ -615,15 +614,15 @@ fn parse_files_list(xml_content: &str) -> anyhow::Result<Vec<FileInfo>> {
                     }
                 }
 
-                if !name.is_empty() {
-                    if let Some(extension) = Path::new(&name).extension() {
-                        let ext_str = extension.to_string_lossy().to_lowercase();
-                        files.push(FileInfo {
-                            name,
-                            extension: ext_str,
-                            size,
-                        });
-                    }
+                if !name.is_empty()
+                    && let Some(extension) = Path::new(&name).extension()
+                {
+                    let ext_str = extension.to_string_lossy().to_lowercase();
+                    files.push(FileInfo {
+                        name,
+                        extension: ext_str,
+                        size,
+                    });
                 }
             }
             Ok(Event::Eof) => break,
@@ -812,44 +811,44 @@ fn merge_book_metadata(
     mut enhanced: EnhancedMetadata,
     book_data: serde_json::Value,
 ) -> EnhancedMetadata {
-    if let Some(docs) = book_data.get("docs").and_then(|d| d.as_array()) {
-        if let Some(book) = docs.first() {
-            // Enhanced description from Open Library
-            if let Some(description) = book.get("first_sentence").and_then(|d| d.as_array()) {
-                if let Some(first_desc) = description.first().and_then(|d| d.as_str()) {
-                    enhanced.enhanced_description = Some(first_desc.to_string());
-                }
-            }
+    if let Some(docs) = book_data.get("docs").and_then(|d| d.as_array())
+        && let Some(book) = docs.first()
+    {
+        // Enhanced description from Open Library
+        if let Some(description) = book.get("first_sentence").and_then(|d| d.as_array())
+            && let Some(first_desc) = description.first().and_then(|d| d.as_str())
+        {
+            enhanced.enhanced_description = Some(first_desc.to_string());
+        }
 
-            // ISBN
-            if let Some(isbn) = book.get("isbn").and_then(|i| i.as_array()) {
-                if let Some(first_isbn) = isbn.first().and_then(|i| i.as_str()) {
-                    enhanced.isbn = Some(first_isbn.to_string());
-                }
-            }
+        // ISBN
+        if let Some(isbn) = book.get("isbn").and_then(|i| i.as_array())
+            && let Some(first_isbn) = isbn.first().and_then(|i| i.as_str())
+        {
+            enhanced.isbn = Some(first_isbn.to_string());
+        }
 
-            // Publisher
-            if let Some(publisher) = book.get("publisher").and_then(|p| p.as_array()) {
-                if let Some(first_pub) = publisher.first().and_then(|p| p.as_str()) {
-                    enhanced.publisher = Some(first_pub.to_string());
-                }
-            }
+        // Publisher
+        if let Some(publisher) = book.get("publisher").and_then(|p| p.as_array())
+            && let Some(first_pub) = publisher.first().and_then(|p| p.as_str())
+        {
+            enhanced.publisher = Some(first_pub.to_string());
+        }
 
-            // Publication date
-            if let Some(pub_date) = book.get("first_publish_year").and_then(|d| d.as_i64()) {
-                enhanced.publication_date = Some(pub_date.to_string());
-            }
+        // Publication date
+        if let Some(pub_date) = book.get("first_publish_year").and_then(|d| d.as_i64()) {
+            enhanced.publication_date = Some(pub_date.to_string());
+        }
 
-            // Subjects/genres
-            if let Some(subjects) = book.get("subject").and_then(|s| s.as_array()) {
-                let mut book_subjects: Vec<String> = subjects
-                    .iter()
-                    .filter_map(|s| s.as_str().map(|s| s.to_string()))
-                    .take(10) // Limit to first 10 subjects
-                    .collect();
-                enhanced.subjects.append(&mut book_subjects);
-                enhanced.subjects.dedup(); // Remove duplicates
-            }
+        // Subjects/genres
+        if let Some(subjects) = book.get("subject").and_then(|s| s.as_array()) {
+            let mut book_subjects: Vec<String> = subjects
+                .iter()
+                .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                .take(10) // Limit to first 10 subjects
+                .collect();
+            enhanced.subjects.append(&mut book_subjects);
+            enhanced.subjects.dedup(); // Remove duplicates
         }
     }
 
@@ -917,12 +916,12 @@ fn merge_wikipedia_metadata(
     wiki_data: serde_json::Value,
 ) -> EnhancedMetadata {
     // Extract Wikipedia summary if we don't have a good description
-    if enhanced.enhanced_description.is_none() {
-        if let Some(extract) = wiki_data.get("extract").and_then(|e| e.as_str()) {
-            if !extract.is_empty() && extract.len() > 100 {
-                enhanced.enhanced_description = Some(extract.to_string());
-            }
-        }
+    if enhanced.enhanced_description.is_none()
+        && let Some(extract) = wiki_data.get("extract").and_then(|e| e.as_str())
+        && !extract.is_empty()
+        && extract.len() > 100
+    {
+        enhanced.enhanced_description = Some(extract.to_string());
     }
 
     enhanced.source = format!("{} + Wikipedia", enhanced.source);
@@ -1145,10 +1144,11 @@ fn validate_downloaded_file(file_path: &Path, expected_size: Option<u64>) -> any
 
     let actual_size = fs::metadata(file_path)?.len();
 
-    if let Some(expected) = expected_size {
-        if actual_size != expected && expected > 0 {
-            println!("⚠️  File size mismatch: expected {expected} bytes, got {actual_size} bytes");
-        }
+    if let Some(expected) = expected_size
+        && actual_size != expected
+        && expected > 0
+    {
+        println!("⚠️  File size mismatch: expected {expected} bytes, got {actual_size} bytes");
     }
 
     if actual_size == 0 {

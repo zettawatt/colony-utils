@@ -752,14 +752,12 @@ async fn main() -> anyhow::Result<()> {
                     pb.finish();
 
                     // Delete directory if not keeping
-                    if !keep_directories {
-                        if let Err(e) = fs::remove_dir_all(&dir_path) {
-                            eprintln!(
-                                "Warning: Failed to remove directory {}: {}",
-                                dir_path.display(),
-                                e
-                            );
-                        }
+                    if !keep_directories && let Err(e) = fs::remove_dir_all(&dir_path) {
+                        eprintln!(
+                            "Warning: Failed to remove directory {}: {}",
+                            dir_path.display(),
+                            e
+                        );
                     }
                 }
                 Err(e) => {
